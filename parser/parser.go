@@ -56,6 +56,7 @@ func (p *parser) nextToken() lexer.Token {
 
 func (p *parser) expect(kind ...lexer.TokenType) {
 	if slices.Contains(kind, p.curToken.Type) {
+		p.nextToken()
 		return
 	}
 	panic(fmt.Errorf("expected token %v but got %v", kind, p.curToken.Type))

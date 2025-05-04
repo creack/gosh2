@@ -8,7 +8,7 @@ import (
 )
 
 const variableChars = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789_"
-const identifiderChars = variableChars + "-."
+const identifiderChars = variableChars + "."
 
 type stateFn func(*Lexer) stateFn
 
@@ -36,6 +36,9 @@ const (
 	TokEquals
 	TokPlus
 	TokMultiply
+	TokDash
+	TokSlash
+	TokModulo
 
 	// Delimiters.
 	TokNewline
@@ -78,6 +81,9 @@ var tokenTypeStrings = map[TokenType]string{
 	TokEquals:      "EQUALS",
 	TokPlus:        "PLUS",
 	TokMultiply:    "MULTIPLY",
+	TokDash:        "DASH",
+	TokSlash:       "SLASH",
+	TokModulo:      "MODULO",
 
 	TokNewline:      "NEWLINE",
 	TokComma:        "COMMA",
@@ -260,7 +266,10 @@ func lexText(l *Lexer) stateFn {
 		'|': TokPipe,
 		'>': TokRedirectOut,
 		'+': TokPlus,
+		'-': TokDash,
 		'*': TokMultiply,
+		'/': TokSlash,
+		'%': TokModulo,
 		',': TokComma,
 	}
 

@@ -9,6 +9,7 @@ type bindingPower int
 
 const (
 	bpDefault bindingPower = iota
+	bpAssignment
 	bpRedirect
 	bpPipe
 	bpAdditive
@@ -30,12 +31,11 @@ func (p *parser) led(kind lexer.TokenType, bp bindingPower, fn ledHandler) {
 	p.bindingPowerLookupTable[kind] = bp
 }
 
-func (p *parser) nud(kind lexer.TokenType, bp bindingPower, fn nudHandler) {
+func (p *parser) nud(kind lexer.TokenType, fn nudHandler) {
 	if _, ok := p.nudLookupTable[kind]; ok {
 		panic("duplicate nud handler")
 	}
 	p.nudLookupTable[kind] = fn
-	p.bindingPowerLookupTable[kind] = bp
 }
 
 func (p *parser) stmt(kind lexer.TokenType, fn stmtHandler) {
@@ -47,15 +47,23 @@ func (p *parser) stmt(kind lexer.TokenType, fn stmtHandler) {
 }
 
 func (p *parser) createTokenLookups() {
+	// Assignment.
+	p.led(lexer.TokEquals, bpAssignment, parseAssignmentExpr)
+
 	p.led(lexer.TokRedirectOut, bpRedirect, parseBinaryExpr)
 	p.led(lexer.TokPipe, bpPipe, parseBinaryExpr)
 
 	// Additional & multiplicative.
 	p.led(lexer.TokPlus, bpAdditive, parseBinaryExpr)
+	p.led(lexer.TokDash, bpAdditive, parseBinaryExpr)
 	p.led(lexer.TokMultiply, bpMultiplicative, parseBinaryExpr)
+	p.led(lexer.TokModulo, bpMultiplicative, parseBinaryExpr)
+	p.led(lexer.TokSlash, bpMultiplicative, parseBinaryExpr)
 
 	// Literals & symbols.
-	p.nud(lexer.TokNumber, bpPrimary, parsePrimaryExpr)
-	p.nud(lexer.TokString, bpPrimary, parsePrimaryExpr)
-	p.nud(lexer.TokIdentifier, bpPrimary, parsePrimaryExpr)
+	p.nud(lexer.TokNumber, parsePrimaryExpr)
+	p.nud(lexer.TokString, parsePrimaryExpr)
+	p.nud(lexer.TokIdentifier, parsePrimaryExpr)
+	p.nud(lexer.TokParenLeft, parseGroupingExpr)
+	p.nud(lexer.TokDash, parsePrefixExpr)
 }

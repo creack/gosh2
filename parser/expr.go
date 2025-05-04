@@ -71,3 +71,33 @@ func parseBinaryExpr(p *parser, left ast.Expr, bp bindingPower) ast.Expr {
 		Right:    right,
 	}
 }
+
+func parsePrefixExpr(p *parser) ast.Expr {
+	operator := p.curToken
+	p.nextToken()
+	right := parseExpr(p, bpDefault)
+
+	return ast.PrefixExpr{
+		Operator: operator,
+		Right:    right,
+	}
+}
+
+func parseAssignmentExpr(p *parser, left ast.Expr, bp bindingPower) ast.Expr {
+	operator := p.curToken
+	p.nextToken()
+	right := parseExpr(p, bp)
+
+	return ast.AssignmentExpr{
+		Assignee: left,
+		Operator: operator,
+		Right:    right,
+	}
+}
+
+func parseGroupingExpr(p *parser) ast.Expr {
+	p.nextToken() // consume '('.
+	expr := parseExpr(p, bpDefault)
+	p.expect(lexer.TokParenRight) // consumes ')'.
+	return expr
+}
