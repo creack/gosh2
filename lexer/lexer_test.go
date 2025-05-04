@@ -20,6 +20,20 @@ func TestLexerSingleCommand(t *testing.T) {
 	testLexer(t, input, expectedTokens)
 }
 
+func TestLexerNumberExpression(t *testing.T) {
+	input := "45.2 + 5 * 4"
+	expectedTokens := []Token{
+		{Type: TokNumber, Value: "45.2"},
+		{Type: TokPlus, Value: "+"},
+		{Type: TokNumber, Value: "5"},
+		{Type: TokMultiply, Value: "*"},
+		{Type: TokNumber, Value: "4"},
+		{Type: TokEOF, Value: ""},
+	}
+
+	testLexer(t, input, expectedTokens)
+}
+
 func TestLexerBasicCommand(t *testing.T) {
 	input := "ls -la"
 	expectedTokens := []Token{
@@ -156,7 +170,7 @@ func TestLexerBracketsForConditions(t *testing.T) {
 		{Type: TokBracketLeft, Value: "["},
 		{Type: TokVar, Value: "$count"},
 		{Type: TokIdentifier, Value: "-eq"},
-		{Type: TokIdentifier, Value: "10"},
+		{Type: TokNumber, Value: "10"},
 		{Type: TokBracketRight, Value: "]"},
 		{Type: TokIdentifier, Value: "&&"}, // Note: In a better implementation, this would be a separate operator type.
 		{Type: TokIdentifier, Value: "echo"},
@@ -187,7 +201,11 @@ func TestLexerBraceExpansion(t *testing.T) {
 		{Type: TokIdentifier, Value: "touch"},
 		{Type: TokIdentifier, Value: "file"},
 		{Type: TokBraceLeft, Value: "{"},
-		{Type: TokIdentifier, Value: "1,2,3"},
+		{Type: TokNumber, Value: "1"},
+		{Type: TokComma, Value: ","},
+		{Type: TokNumber, Value: "2"},
+		{Type: TokComma, Value: ","},
+		{Type: TokNumber, Value: "3"},
 		{Type: TokBraceRight, Value: "}"},
 		{Type: TokIdentifier, Value: ".txt"},
 		{Type: TokEOF, Value: ""},
@@ -233,7 +251,7 @@ func TestLexerArrayAccess(t *testing.T) {
 		{Type: TokBraceLeft, Value: "${"},
 		{Type: TokIdentifier, Value: "files"},
 		{Type: TokBracketLeft, Value: "["},
-		{Type: TokIdentifier, Value: "0"},
+		{Type: TokNumber, Value: "0"},
 		{Type: TokBracketRight, Value: "]"},
 		{Type: TokBraceRight, Value: "}"},
 		{Type: TokEOF, Value: ""},
@@ -244,6 +262,8 @@ func TestLexerArrayAccess(t *testing.T) {
 
 // Helper function to test the lexer
 func testLexer(t *testing.T, input string, expectedTokens []Token) {
+	t.Helper()
+
 	l := NewLexer(input)
 
 	for i, expectedToken := range expectedTokens {
