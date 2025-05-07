@@ -67,6 +67,7 @@ var tokenTypeStrings = map[TokenType]string{
 
 	TokIdentifier: "IDENTIFIER",
 	TokString:     "STRING",
+	TokNumber:     "NUMBER",
 	TokVar:        "VAR",
 
 	TokRedirectLess:           "REDIRECT_IN",         // '<'.
