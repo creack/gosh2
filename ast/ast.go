@@ -173,15 +173,14 @@ func (t Term) Dump() string {
 
 // IORedirect represents an I/O redirection.
 type IORedirect struct {
-	Number   int             // Optional file descriptor, -1 if not specified.
+	Number   int             // Source file descriptor number.
 	Op       lexer.TokenType // "<", "<&", ">", ">&", ">>", "<>", ">|".
+	ToNumber *int            // For n>&m, nil if not specified.
 	Filename string          // For file redirections.
 	HereDoc  string          // For heredocs.
 }
 
 func (i IORedirect) Dump() string {
-	if i.Number >= 0 {
-		return fmt.Sprintf("%d%s %s", i.Number, i.Op, i.Filename)
-	}
-	return fmt.Sprintf("%s %s", i.Op, i.Filename)
+	// TODO: Add support for ToNumber.
+	return fmt.Sprintf("%d%s %s", i.Number, i.Op, i.Filename)
 }

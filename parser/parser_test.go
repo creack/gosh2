@@ -14,14 +14,23 @@ import (
 )
 
 func mkCmd(input string) ast.SimpleCommand {
+	return mkCmdRedir(input, nil, nil)
+}
+
+func mkCmdRedir(input string, prefix, suffix []ast.IORedirect) ast.SimpleCommand {
 	parts := strings.Split(input, " ")
+	words := parts[1:]
 	if len(parts) == 1 {
-		return ast.SimpleCommand{Name: input}
+		words = nil
 	}
 	return ast.SimpleCommand{
+		Prefix: ast.CmdPrefix{
+			Redirects: prefix,
+		},
 		Name: parts[0],
 		Suffix: ast.CmdSuffix{
-			Words: parts[1:],
+			Words:     words,
+			Redirects: suffix,
 		},
 	}
 }
@@ -82,19 +91,19 @@ func TestParserComplex(t *testing.T) {
 			cmdTree   = mkCmd("tree")
 		)
 		cmdLs.Prefix.Redirects = []ast.IORedirect{
-			{Number: 5, Op: lexer.TokRedirectIn, Filename: "bar"},
+			{Number: 5, Op: lexer.TokRedirectLess, Filename: "bar"},
 		}
 		cmdCat.Suffix.Redirects = []ast.IORedirect{
-			{Number: 0, Op: lexer.TokRedirectIn, Filename: "foo"},
+			{Number: 0, Op: lexer.TokRedirectLess, Filename: "foo"},
 		}
 		cmdEchoOk.Suffix.Redirects = []ast.IORedirect{
-			{Number: 1, Op: lexer.TokRedirectOut, Filename: "bar"},
-			{Number: 1, Op: lexer.TokRedirectOut, Filename: "bar1"},
-			{Number: 2, Op: lexer.TokRedirectOut, Filename: "baz"},
-			{Number: 3, Op: lexer.TokDoubleRedirectOut, Filename: "buz"},
+			{Number: 1, Op: lexer.TokRedirectGreat, Filename: "bar"},
+			{Number: 1, Op: lexer.TokRedirectGreat, Filename: "bar1"},
+			{Number: 2, Op: lexer.TokRedirectGreat, Filename: "baz"},
+			{Number: 3, Op: lexer.TokRedirectDoubleGreat, Filename: "buz"},
 		}
 		cmdEchoKo.Prefix.Redirects = []ast.IORedirect{
-			{Number: 4, Op: lexer.TokRedirectOut, Filename: "f"},
+			{Number: 4, Op: lexer.TokRedirectGreat, Filename: "f"},
 		}
 
 		expect := ast.Program{
@@ -162,5 +171,86 @@ func TestParseStream(t *testing.T) {
 	case <-done:
 	case <-timer.C:
 		t.Fatal("timeout")
+	}
+}
+
+func TestParserRedirects(t *testing.T) {
+	for _, tt := range []struct {
+		input    string
+		expected ast.SimpleCommand
+	}{
+		{
+			input:    "ls < foo",
+			expected: mkCmdRedir("ls", nil, []ast.IORedirect{{Number: 0, Op: lexer.TokRedirectLess, Filename: "foo"}}),
+		},
+		{
+			input:    "ls > foo",
+			expected: mkCmdRedir("ls", nil, []ast.IORedirect{{Number: 1, Op: lexer.TokRedirectGreat, Filename: "foo"}}),
+		},
+		{
+			input:    "< foo ls",
+			expected: mkCmdRedir("ls", []ast.IORedirect{{Number: 0, Op: lexer.TokRedirectLess, Filename: "foo"}}, nil),
+		},
+		{
+			input:    ">> foo ls",
+			expected: mkCmdRedir("ls", []ast.IORedirect{{Number: 1, Op: lexer.TokRedirectDoubleGreat, Filename: "foo"}}, nil),
+		},
+		{
+			input: "> foo < bar ls < baz > qux",
+			expected: mkCmdRedir("ls", []ast.IORedirect{
+				{Number: 1, Op: lexer.TokRedirectGreat, Filename: "foo"},
+				{Number: 0, Op: lexer.TokRedirectLess, Filename: "bar"},
+			}, []ast.IORedirect{
+				{Number: 0, Op: lexer.TokRedirectLess, Filename: "baz"},
+				{Number: 1, Op: lexer.TokRedirectGreat, Filename: "qux"},
+			}),
+		},
+		{
+			input:    "ls 5< foo",
+			expected: mkCmdRedir("ls", nil, []ast.IORedirect{{Number: 5, Op: lexer.TokRedirectLess, Filename: "foo"}}),
+		},
+		{
+			input:    "ls 5> foo",
+			expected: mkCmdRedir("ls", nil, []ast.IORedirect{{Number: 5, Op: lexer.TokRedirectGreat, Filename: "foo"}}),
+		},
+		{
+			input:    "ls <> foo",
+			expected: mkCmdRedir("ls", nil, []ast.IORedirect{{Number: 0, Op: lexer.TokRedirectLessGreat, Filename: "foo"}}),
+		},
+		{
+			input:    "ls 24<> foo",
+			expected: mkCmdRedir("ls", nil, []ast.IORedirect{{Number: 24, Op: lexer.TokRedirectLessGreat, Filename: "foo"}}),
+		},
+		{
+			input:    "ls >& foo",
+			expected: mkCmdRedir("ls", nil, []ast.IORedirect{{Number: 1, Op: lexer.TokRedirectGreatAnd, Filename: "foo"}}),
+		},
+		{
+			input:    "ls 2>&3",
+			expected: mkCmdRedir("ls", nil, []ast.IORedirect{{Number: 2, Op: lexer.TokRedirectGreatAnd, ToNumber: 3}}),
+		},
+		{
+			input:    "ls 4<&5",
+			expected: mkCmdRedir("ls", nil, []ast.IORedirect{{Number: 4, Op: lexer.TokRedirectLessAnd, ToNumber: 5}}),
+		},
+	} {
+		t.Run(tt.input, func(t *testing.T) {
+			lex := lexer.New(strings.NewReader(tt.input))
+			prog := Parse(lex)
+			expect := ast.Program{
+				Commands: []ast.CompleteCommand{{
+					List: ast.List{
+						AndOrs: []ast.AndOr{{
+							Pipelines: []ast.Pipeline{
+								{Commands: []ast.Command{tt.expected}},
+							},
+						}},
+					},
+					Separator: 0,
+				}},
+			}
+
+			require.Equal(t, expect, prog)
+		})
 	}
 }

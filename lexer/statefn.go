@@ -20,7 +20,6 @@ func lexText(l *Lexer) stateFn {
 		']':  TokBracketRight,
 		'{':  TokBraceLeft,
 		'}':  TokBraceRight,
-		';':  TokSemicolon,
 		'&':  TokAmpersand,
 		'=':  TokEquals,
 		',':  TokComma,
@@ -34,30 +33,15 @@ func lexText(l *Lexer) stateFn {
 		return lexString(r)
 	case r == '$':
 		return lexDollar
-	case r == '<':
+	case r == '>', r == '<':
+		return lexRedirect
+	case r == ';':
 		l.next()
-		if l.peek() == '<' {
+		if l.peek() == ';' {
 			l.next()
-			tok := l.thisToken(TokDoubleRedirectIn)
-			// TODO: Handle HEREDOC. Get the HEREDOC name, consume everthing until we find it.
-			_ = tok
-			panic("HEREDOC not implemented")
-			// return l.emitToken(tok)
+			return l.emit(TokDoubleSemicolon)
 		}
-		tok := l.thisToken(TokRedirectIn)
-		tok.Value = "0" // No number means stdin (0).
-		return l.emitToken(tok)
-	case r == '>':
-		l.next()
-		if l.peek() == '>' {
-			l.next()
-			tok := l.thisToken(TokDoubleRedirectOut)
-			tok.Value = "1" // No number means stdout (1).
-			return l.emitToken(tok)
-		}
-		tok := l.thisToken(TokRedirectOut)
-		tok.Value = "1" // No number means stdout (1).
-		return l.emitToken(tok)
+		return l.emit(TokSemicolon)
 	case r == '|':
 		l.next()
 		if l.peek() == '|' {
@@ -92,30 +76,62 @@ func lexNumber(l *Lexer) stateFn {
 	const digits = "0123456789"
 	l.acceptRun(digits)
 	if peeked := l.peek(); peeked == '>' || peeked == '<' {
-		tok := l.thisToken(0)
-		l.next()
-		double := l.peek() == peeked
-		if double {
-			l.next()
-		}
-		switch {
-		case peeked == '>' && !double:
-			tok.Type = TokRedirectOut
-		case peeked == '>' && double:
-			tok.Type = TokDoubleRedirectOut
-		case peeked == '<' && !double:
-			tok.Type = TokRedirectIn
-		case peeked == '<' && double:
-			tok.Type = TokDoubleRedirectIn
-		}
-		return l.emitToken(tok)
+		return lexRedirect
 	}
 	l.acceptRun(digits)
 	if l.peek() == '.' {
 		l.next()
 		l.acceptRun(digits)
 	}
-	return l.emit(TokIdentifier)
+	return l.emit(TokNumber)
+}
+
+func lexRedirect(l *Lexer) stateFn {
+	peeked := l.peek()
+	tok := l.thisToken(0)
+	l.next()
+	nextTok := l.peek()
+
+	if tok.Value == "" {
+		if peeked == '>' {
+			tok.Value = "1"
+		} else {
+			tok.Value = "0"
+		}
+	}
+
+	switch {
+	case peeked == '>' && nextTok == '>':
+		l.next()
+		tok.Type = TokRedirectDoubleGreat
+	case peeked == '>' && nextTok == '&':
+		l.next()
+		tok.Type = TokRedirectGreatAnd
+	case peeked == '>' && nextTok == '|':
+		l.next()
+		tok.Type = TokRedirectClobber
+	case peeked == '>':
+		tok.Type = TokRedirectGreat
+
+	case peeked == '<' && nextTok == '<':
+		l.next()
+		if l.peek() == '-' {
+			l.next()
+			tok.Type = TokRedirectDoubleLessDash
+		} else {
+			tok.Type = TokRedirectDoubleLess
+		}
+	case peeked == '<' && nextTok == '&':
+		l.next()
+		tok.Type = TokRedirectLessAnd
+	case peeked == '<' && nextTok == '>':
+		l.next()
+		tok.Type = TokRedirectLessGreat
+	case peeked == '<':
+		tok.Type = TokRedirectLess
+	}
+
+	return l.emitToken(tok)
 }
 
 func lexDollar(l *Lexer) stateFn {

@@ -124,7 +124,37 @@ func parseCommandRedirect(p *parser) []ast.IORedirect {
 	var redirects []ast.IORedirect
 	for {
 		switch p.curToken.Type {
-		case lexer.TokRedirectIn, lexer.TokRedirectOut, lexer.TokDoubleRedirectOut:
+		case lexer.TokRedirectGreatAnd, lexer.TokRedirectLessAnd:
+			// Parse the fd number.
+			fd, err := strconv.Atoi(p.curToken.Value)
+			if err != nil {
+				panic(fmt.Errorf("invalid fd number: %q", p.curToken.Value))
+			}
+			op := p.curToken.Type
+			p.nextToken()
+			red := ast.IORedirect{
+				Number: fd,
+				Op:     op,
+			}
+
+			target := p.expect(lexer.TokString, lexer.TokIdentifier, lexer.TokNumber).Value
+			if p.curToken.Type == lexer.TokNumber {
+				n, err := strconv.Atoi(target)
+				if err != nil {
+					panic(fmt.Errorf("invalid target fd number: %q", target))
+				}
+				red.ToNumber = &n
+			} else {
+				if op == lexer.TokRedirectLessAnd {
+					panic(fmt.Errorf("file number expected after %q", op))
+				}
+				red.Filename = target
+			}
+
+			p.nextToken()
+			redirects = append(redirects, red)
+
+		case lexer.TokRedirectLess, lexer.TokRedirectGreat, lexer.TokRedirectDoubleGreat, lexer.TokRedirectLessGreat:
 			// Parse the fd number.
 			fd, err := strconv.Atoi(p.curToken.Value)
 			if err != nil {
@@ -139,7 +169,7 @@ func parseCommandRedirect(p *parser) []ast.IORedirect {
 			}
 			p.nextToken()
 			redirects = append(redirects, red)
-		case lexer.TokDoubleRedirectIn:
+		case lexer.TokRedirectDoubleLess:
 			// Parse the fd number.
 			fd, err := strconv.Atoi(p.curToken.Value)
 			if err != nil {
@@ -148,7 +178,7 @@ func parseCommandRedirect(p *parser) []ast.IORedirect {
 			p.nextToken()
 			red := ast.IORedirect{
 				Number: fd,
-				Op:     lexer.TokDoubleRedirectIn,
+				Op:     lexer.TokRedirectDoubleLess,
 				// TODO: Need to consume token until EOF or HERE END.
 				HereDoc: p.expect(lexer.TokString, lexer.TokIdentifier).Value,
 			}

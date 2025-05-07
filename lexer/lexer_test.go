@@ -96,7 +96,7 @@ func TestLexerRedirection(t *testing.T) {
 	expectedTokens := []Token{
 		{Type: TokIdentifier, Value: "echo"},
 		{Type: TokIdentifier, Value: "hello"},
-		{Type: TokRedirectOut, Value: "1"},
+		{Type: TokRedirectGreat, Value: "1"},
 		{Type: TokIdentifier, Value: "output.txt"},
 		{Type: TokEOF, Value: ""},
 	}
@@ -152,9 +152,9 @@ func TestLexerComplexCommand(t *testing.T) {
 		{Type: TokIdentifier, Value: "xargs"},
 		{Type: TokIdentifier, Value: "grep"},
 		{Type: TokString, Value: "\"func main\""},
-		{Type: TokRedirectOut, Value: "1"},
+		{Type: TokRedirectGreat, Value: "1"},
 		{Type: TokIdentifier, Value: "results.txt"},
-		{Type: TokRedirectOut, Value: "2"},
+		{Type: TokRedirectGreat, Value: "2"},
 		{Type: TokIdentifier, Value: "errors.log"},
 		{Type: TokAmpersand, Value: "&"},
 		{Type: TokEOF, Value: ""},

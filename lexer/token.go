@@ -13,27 +13,37 @@ const (
 	// Identifiers + literals.
 	TokIdentifier
 	TokString
+	TokNumber
 	TokVar
 
-	// Operators.
-	TokPipe
-	TokRedirectIn
-	TokRedirectOut
-	TokDoubleRedirectIn
-	TokDoubleRedirectOut
+	// Redirects.
+	TokRedirectLess           // '<'.
+	TokRedirectGreat          // '>'.
+	TokRedirectDoubleLess     // DLESS (<<).
+	TokRedirectDoubleGreat    // DGREAT (>>).
+	TokRedirectLessAnd        // LESSAND (<&).
+	TokRedirectGreatAnd       // GREATAND (>&).
+	TokRedirectLessGreat      // LESSGREAT (<>).
+	TokRedirectDoubleLessDash // DLESSDASH (<<-).
+	TokRedirectClobber        // CLOBBER (>|).
 
+	// Operators.
 	TokEquals
 	TokBang
+	TokLogicalAnd
+	TokLogicalOr
 
 	// Delimiters.
 	TokNewline
+	TokPipe
 	TokComma
 	TokSemicolon
+	TokDoubleSemicolon
 	TokAmpersand
-	TokLogicalAnd
-	TokLogicalOr
+
 	TokQuoteDouble
 	TokQuoteSingle
+
 	TokParenLeft
 	TokParenRight
 	TokBraceLeft
@@ -59,22 +69,31 @@ var tokenTypeStrings = map[TokenType]string{
 	TokString:     "STRING",
 	TokVar:        "VAR",
 
-	TokPipe:              "PIPE",
-	TokRedirectIn:        "REDIRECT_IN",
-	TokRedirectOut:       "REDIRECT_OUT",
-	TokDoubleRedirectIn:  "DOUBLE_REDIRECT_IN",
-	TokDoubleRedirectOut: "DOUBLE_REDIRECT_OUT",
-	TokEquals:            "EQUALS",
-	TokBang:              "BANG",
+	TokRedirectLess:           "REDIRECT_IN",         // '<'.
+	TokRedirectGreat:          "REDIRECT_OUT",        // '>'.
+	TokRedirectDoubleLess:     "REDIRECT_DOUBLE_IN",  // DLESS (<<).
+	TokRedirectDoubleGreat:    "REDIRECT_DOUBLE_OUT", // DGREAT (>>).
+	TokRedirectLessAnd:        "REDIRECT_LESSAND",    // LESSAND (<&).
+	TokRedirectGreatAnd:       "REDIRECT_GREATAND",   // GREATAND (>&).
+	TokRedirectLessGreat:      "REDIRECT_LESSGREAT",  // LESSGREAT (<>).
+	TokRedirectDoubleLessDash: "REDIRECT_DLESSDASH",  // DLESSDASH (<<-).
+	TokRedirectClobber:        "REDIRECT_CLOBBER",    // CLOBBER (>|).
 
-	TokNewline:      "NEWLINE",
-	TokComma:        "COMMA",
-	TokSemicolon:    "SEMICOLON",
-	TokAmpersand:    "AMPERSAND",
-	TokLogicalAnd:   "LOGICAL_AND",
-	TokLogicalOr:    "LOGICAL_OR",
-	TokQuoteDouble:  "QUOTE_DOUBLE",
-	TokQuoteSingle:  "QUOTE_SINGLE",
+	TokEquals:     "EQUALS",
+	TokBang:       "BANG",
+	TokLogicalAnd: "LOGICAL_AND",
+	TokLogicalOr:  "LOGICAL_OR",
+
+	TokNewline:         "NEWLINE",
+	TokPipe:            "PIPE",
+	TokComma:           "COMMA",
+	TokSemicolon:       "SEMICOLON",
+	TokDoubleSemicolon: "DOUBLE_SEMICOLON",
+	TokAmpersand:       "AMPERSAND",
+
+	TokQuoteDouble: "QUOTE_DOUBLE",
+	TokQuoteSingle: "QUOTE_SINGLE",
+
 	TokParenLeft:    "PAREN_LEFT",
 	TokParenRight:   "PAREN_RIGHT",
 	TokBraceLeft:    "BRACE_LEFT",

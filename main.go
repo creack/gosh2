@@ -22,60 +22,75 @@ func (f *FileWrap) Close() error {
 }
 
 func setupCommandIO(simpleCmd ast.SimpleCommand, cmd *exec.Cmd) error {
-	inputFDs := map[int]struct{}{}
-	outputFDs := map[int]struct{}{}
 	for _, elem := range append(simpleCmd.Prefix.Redirects, simpleCmd.Suffix.Redirects...) {
+		var openFlags int
 		switch elem.Op {
-		case lexer.TokRedirectIn:
-			file, err := os.Open(elem.Filename)
-			if err != nil {
-				return fmt.Errorf("open %q: %w", elem.Filename, err)
+		case lexer.TokRedirectLess:
+			openFlags |= os.O_RDONLY
+		case lexer.TokRedirectGreat, lexer.TokRedirectGreatAnd:
+			openFlags |= os.O_CREATE | os.O_TRUNC | os.O_WRONLY
+		case lexer.TokRedirectDoubleGreat:
+			openFlags |= os.O_CREATE | os.O_APPEND | os.O_WRONLY
+		case lexer.TokRedirectLessGreat:
+			openFlags |= os.O_CREATE | os.O_RDWR
+		case lexer.TokRedirectLessAnd:
+		default:
+			return fmt.Errorf("unsupported redirect %q", elem.Op)
+		}
+
+		var file *os.File
+		if elem.Filename != "" {
+			// Check for invalid case `echo hello 4>& foo`.
+			// The `>&` redirect only support '1' (or empty, which defaults to 1)
+			// when used with a target filename.
+			if elem.Op == lexer.TokRedirectGreatAnd && elem.Number != 1 {
+				return fmt.Errorf("ambiguous redirect %q", elem.Op)
 			}
-			switch elem.Number {
-			case 0:
-				cmd.Stdin = file
-			default:
-				if _, ok := outputFDs[elem.Number]; ok {
-					return fmt.Errorf("cannot redirect %q to %d: already used for output", elem.Filename, elem.Number)
-				}
-				if len(cmd.ExtraFiles) <= elem.Number-3 {
-					extraFiles := make([]*os.File, elem.Number-3+1)
-					copy(extraFiles, cmd.ExtraFiles)
-					cmd.ExtraFiles = extraFiles
-				}
-				cmd.ExtraFiles[elem.Number-3] = file
-				inputFDs[elem.Number] = struct{}{}
-			}
-		case lexer.TokRedirectOut, lexer.TokDoubleRedirectOut:
-			openFlags := os.O_WRONLY | os.O_CREATE
-			if elem.Op == lexer.TokDoubleRedirectOut {
-				openFlags |= os.O_APPEND
-			} else {
-				openFlags |= os.O_TRUNC
-			}
-			file, err := os.OpenFile(elem.Filename, openFlags, 0o644)
+			f, err := os.OpenFile(elem.Filename, openFlags, 0o644)
 			if err != nil {
 				return fmt.Errorf("openfile %q: %w", elem.Filename, err)
 			}
-			switch elem.Number {
+			file = f
+		} else if elem.ToNumber != nil {
+			switch *elem.ToNumber {
+			case 0:
+				file, _ = cmd.Stdin.(*os.File)
 			case 1:
-				cmd.Stdout = file
+				file, _ = cmd.Stdout.(*os.File)
 			case 2:
-				cmd.Stderr = file
+				file, _ = cmd.Stderr.(*os.File)
 			default:
-				if _, ok := inputFDs[elem.Number]; ok {
-					return fmt.Errorf("cannot redirect %d to %q: already used for input", elem.Number, elem.Filename)
+				if len(cmd.ExtraFiles) > *elem.ToNumber-3 {
+					file = cmd.ExtraFiles[*elem.ToNumber-3]
 				}
-				if len(cmd.ExtraFiles) <= elem.Number-3 {
-					extraFiles := make([]*os.File, elem.Number-3+1)
-					copy(extraFiles, cmd.ExtraFiles)
-					cmd.ExtraFiles = extraFiles
-				}
-				cmd.ExtraFiles[elem.Number-3] = file
-				outputFDs[elem.Number] = struct{}{}
 			}
+			if file == nil {
+				return fmt.Errorf("bad file descriptior %d\n", *elem.ToNumber)
+			}
+		} else {
+			return fmt.Errorf("missing filename or fd for %q", elem.Op)
+		}
+
+		switch elem.Number {
+		case 0:
+			cmd.Stdin = file
+		case 1:
+			cmd.Stdout = file
+			// Case for `>& filename`, redirect both stdout and stderr to the file.
+			if elem.Op == lexer.TokRedirectGreatAnd && elem.Filename != "" {
+				cmd.Stderr = file
+			}
+		case 2:
+			cmd.Stderr = file
 		default:
-			return fmt.Errorf("unsupported redirect %q", elem.Op)
+			// Go pass down FDs via the ExtraFiles slice.
+			// Any entry in the slice will start at fd 3 (i.e. after stdin, stdout, stderr).
+			if len(cmd.ExtraFiles) <= elem.Number-3 {
+				extraFiles := make([]*os.File, elem.Number-3+1)
+				copy(extraFiles, cmd.ExtraFiles)
+				cmd.ExtraFiles = extraFiles
+			}
+			cmd.ExtraFiles[elem.Number-3] = file
 		}
 	}
 	return nil
@@ -99,6 +114,7 @@ func executePipeline(pipeline ast.Pipeline) (int, error) {
 
 	for i := len(cmds) - 1; i > 0; i-- {
 		cmds[i].Stdin, _ = cmds[i-1].StdoutPipe()
+		cmds[i-1].Stderr = os.Stderr
 		if err := setupCommandIO(simpleCmds[i-1], cmds[i-1]); err != nil {
 			return -1, fmt.Errorf("setup %q: %w", cmds[i-1].Path, err)
 		}
@@ -112,8 +128,6 @@ func executePipeline(pipeline ast.Pipeline) (int, error) {
 	lastExitCode := -1
 	const optPipefail = false
 	for _, cmd := range cmds {
-		// TODO: Only fail if the last command fails.
-		// TODO: Support `set -o pipefail` to fail if any command fails.
 		err := cmd.Wait()
 		if cmd.ProcessState != nil {
 			lastExitCode = cmd.ProcessState.ExitCode()
@@ -157,11 +171,14 @@ func evaluate(completeCmd ast.CompleteCommand) (int, error) {
 	return exitCode, nil
 }
 
-func test() error {
+func test() (int, error) {
 	input := "rm -f foo bar; ls -l > bar | foo.sh | wc -c | cat -e > foo; echo --; cat bar; echo --; cat foo"
 	input = "echo hello > foo; echo world >> foo; ls /dev/fd 7<foo; cat /dev/fd/7 7<foo"
 	input = "foo.sh 8> ret; echo why && echo ok1 || echo ko2 && echo ok2; cat ret; echo -1-"
-	input = "sdafasdfdsaf; echo yup; echo ok;"
+	input = "echo hello > foo; foo.sh <> foo; echo --; cat foo"
+	// input = "foo.sh 7<foo | cat -e; echo --; ls; echo --; cat a"
+	// input = "cat /dev/fd/9 9<&7 7<foo"
+	// input = "echo hello 8>bar >&8; cat bar"
 
 	p := parser.New(strings.NewReader(input))
 	lastExitCode := -1
@@ -176,8 +193,8 @@ func test() error {
 		}
 		lastExitCode = exitCode
 	}
-	os.Exit(lastExitCode)
-	return nil
+
+	return lastExitCode, nil
 }
 
 func main() {
@@ -191,11 +208,14 @@ func main() {
 	if err := os.Chdir(tmpDir); err != nil {
 		log.Fatalf("Fail: %s.", err)
 	}
-	if err := os.WriteFile("foo", []byte("foo"), 0644); err != nil {
+	if err := os.WriteFile("foo", []byte("foo\n"), 0644); err != nil {
 		log.Fatalf("Fail: %s.", err)
 	}
 
-	if err := test(); err != nil {
+	lastExitCode, err := test()
+	_ = os.RemoveAll(tmpDir) // Best effort cleanup.
+	if err != nil {
 		log.Fatalf("Fail: %s.", err)
 	}
+	os.Exit(lastExitCode)
 }
