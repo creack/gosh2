@@ -14,13 +14,12 @@ func parseCompleteCommand(p *parser) ast.CompleteCommand {
 	completeCmd := ast.CompleteCommand{}
 
 	completeCmd.List = parseList(p)
-	if p.curToken.Type == lexer.TokAmpersand || p.curToken.Type == lexer.TokSemicolon {
-		completeCmd.Separator = p.curToken.Value
+	if p.prevToken.Type == lexer.TokAmpersand || p.prevToken.Type == lexer.TokSemicolon {
+		completeCmd.Separator = p.prevToken.Type
 		p.nextToken()
 	}
 
 	p.expect(lexer.TokEOF, lexer.TokNewline)
-
 	return completeCmd
 }
 
@@ -33,20 +32,19 @@ func parseList(p *parser) ast.List {
 		list.AndOrs = append(list.AndOrs, andOr)
 
 		if p.curToken.Type == lexer.TokSemicolon || p.curToken.Type == lexer.TokAmpersand {
+			p.nextToken()
 			// A list cannot end with a separator, if there is one, it must be followed by a and_or.
 			// If it is not, it is the end of the list.
-			if p.peekToken.Type == lexer.TokEOF || p.peekToken.Type == lexer.TokNewline {
+			if p.curToken.Type == lexer.TokEOF || p.curToken.Type == lexer.TokNewline {
 				return list
 			}
-			list.Separators = append(list.Separators, p.curToken.Value)
-			p.nextToken()
+			list.Separators = append(list.Separators, p.prevToken.Type)
 			continue
 		}
 		break
 	}
 
 	p.expect(lexer.TokEOF, lexer.TokNewline)
-
 	return list
 }
 
@@ -64,6 +62,7 @@ func parseAndOr(p *parser) ast.AndOr {
 		}
 		break
 	}
+
 	p.expect(lexer.TokEOF, lexer.TokNewline, lexer.TokAmpersand, lexer.TokSemicolon)
 	return andOr
 }

@@ -1,8 +1,11 @@
 package parser
 
 import (
+	"fmt"
+	"io"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/require"
 
@@ -25,7 +28,7 @@ func mkCmd(input string) ast.SimpleCommand {
 
 func TestParserSimple(t *testing.T) {
 	// Create a lexer with some test input.
-	lex := lexer.New("ls -l\n")
+	lex := lexer.New(strings.NewReader("ls -l\n"))
 
 	// Parse the input.
 	prog := Parse(lex)
@@ -39,7 +42,7 @@ func TestParserSimple(t *testing.T) {
 			}},
 			Operators: nil,
 		}}},
-		Separator: "",
+		Separator: 0,
 	}}}
 
 	require.Equal(t, expect, prog)
@@ -48,7 +51,7 @@ func TestParserSimple(t *testing.T) {
 func TestParserBadRedirect(t *testing.T) {
 	t.SkipNow()
 	// Create a lexer with some test input.
-	lex := lexer.New("ls -l > foo> 2> bar baz")
+	lex := lexer.New(strings.NewReader("ls -l > foo> 2> bar baz"))
 
 	// Parse the input.
 	prog := Parse(lex)
@@ -64,7 +67,7 @@ func TestParserComplex(t *testing.T) {
 		"5< bar ls -l | cat -e | \n\n cat <foo  && ! \necho ok>bar >bar1 2>baz 3>>buz || \n4>f echo ko&printf hello\ntree;\n",
 	} {
 		// Create a lexer with some test input.
-		lex := lexer.New(input)
+		lex := lexer.New(strings.NewReader(input))
 
 		// Parse the input.
 		prog := Parse(lex)
@@ -109,9 +112,9 @@ func TestParserComplex(t *testing.T) {
 							{Commands: []ast.Command{cmdPrintf}},
 						},
 					}},
-					Separators: []string{"&"},
+					Separators: []lexer.TokenType{lexer.TokAmpersand},
 				},
-				Separator: "",
+				Separator: 0,
 			}, {
 				List: ast.List{
 					AndOrs: []ast.AndOr{{
@@ -120,10 +123,44 @@ func TestParserComplex(t *testing.T) {
 						},
 					}},
 				},
-				Separator: ";",
+				Separator: lexer.TokSemicolon,
 			}},
 		}
 
 		require.Equal(t, expect, prog, "Unexpecte result for %q\n", input)
+	}
+}
+
+func TestParseStream(t *testing.T) {
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		inR, inW := io.Pipe()
+		defer func() { _ = inR.Close() }() // Best effort.
+		defer func() { _ = inW.Close() }() // Best effort.
+
+		p := New(inR)
+		for range 3 {
+			go fmt.Fprintf(inW, "ls\n")
+
+			cmd := p.NextCompleteCommand()
+
+			require.NotNil(t, cmd)
+			require.Len(t, cmd.List.AndOrs, 1)
+			require.Len(t, cmd.List.AndOrs[0].Pipelines, 1)
+			require.Len(t, cmd.List.AndOrs[0].Pipelines[0].Commands, 1)
+			simpleCmd, ok := cmd.List.AndOrs[0].Pipelines[0].Commands[0].(ast.SimpleCommand)
+			require.True(t, ok)
+			require.Equal(t, "ls", simpleCmd.Name)
+		}
+	}()
+
+	timer := time.NewTimer(5 * time.Second)
+	defer timer.Stop()
+
+	select {
+	case <-done:
+	case <-timer.C:
+		t.Fatal("timeout")
 	}
 }

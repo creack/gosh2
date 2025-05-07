@@ -2,7 +2,10 @@
 package lexer
 
 import (
+	"bufio"
+	"errors"
 	"fmt"
+	"io"
 	"strings"
 	"unicode/utf8"
 )
@@ -11,7 +14,9 @@ const variableChars = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ01234
 const identifiderChars = variableChars + ".-+*%/?"
 
 type Lexer struct {
-	input string
+	reader *bufio.Reader
+
+	input string // The current input string.
 
 	curToken Token
 
@@ -28,17 +33,19 @@ type Lexer struct {
 
 // New creates a new Lexer for the given input.
 // This is just a placeholder for now.
-func New(input string) *Lexer {
-	l := &Lexer{
-		input:     input,
+func New(input io.Reader) *Lexer {
+	return &Lexer{
+		reader:    bufio.NewReader(input),
 		line:      1,
 		startLine: 1,
 	}
-	return l
 }
 
 func (l *Lexer) NextToken() Token {
 	l.curToken = Token{Type: TokEOF, Value: "EOF", pos: l.pos, line: l.line}
+	if l.atEOF {
+		return l.curToken
+	}
 	state := lexText
 	for {
 		state = state(l)
@@ -51,11 +58,18 @@ func (l *Lexer) NextToken() Token {
 }
 
 func (l *Lexer) next() rune {
-	if l.pos >= len(l.input) {
-		l.atEOF = true
+	if l.atEOF {
 		return 0
 	}
-	r, n := utf8.DecodeRuneInString(l.input[l.pos:])
+	r, n, err := l.reader.ReadRune()
+	if err != nil {
+		if errors.Is(err, io.EOF) {
+			l.atEOF = true
+			return 0
+		}
+		panic(fmt.Errorf("read rune: %w", err))
+	}
+	l.input += string(r)
 	l.pos += n
 	l.linePos += n
 	if r == '\n' {
@@ -72,8 +86,12 @@ func (l *Lexer) backup() {
 	if l.atEOF || l.pos == 0 {
 		return
 	}
+	if err := l.reader.UnreadRune(); err != nil {
+		panic(fmt.Errorf("unread rune: %w", err))
+	}
 	r, n := utf8.DecodeLastRuneInString(l.input[:l.pos])
 	l.pos -= n
+	l.input = l.input[:l.pos]
 	l.linePos -= n
 	if r == '\n' {
 		l.line--
@@ -140,6 +158,7 @@ func (l *Lexer) errorf(format string, args ...any) stateFn {
 	}
 	l.start = 0
 	l.pos = 0
-	l.input = l.input[:0]
+	l.atEOF = true
+	l.reader = nil
 	return nil
 }

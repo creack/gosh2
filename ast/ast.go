@@ -30,12 +30,12 @@ func (p Program) Dump() string {
 // CompleteCommand represents a complete command with optional final separator.
 // CompleteCommand : list separator_op | list.
 type CompleteCommand struct {
-	List      List   // The list of commands, separated by ; or &.
-	Separator string // ";", "&", or empty.
+	List      List            // The list of commands, separated by ; or &.
+	Separator lexer.TokenType // ";", "&", or empty.
 }
 
 func (c CompleteCommand) Dump() string {
-	if c.Separator != "" {
+	if c.Separator != lexer.TokEOF {
 		return fmt.Sprintf("%s %s", c.List.Dump(), c.Separator)
 	}
 	return c.List.Dump()
@@ -45,8 +45,8 @@ func (c CompleteCommand) Dump() string {
 //
 // List : list separator_op and_or | and_or.
 type List struct {
-	AndOrs     []AndOr  // List of AndOrs.
-	Separators []string // ";", "&", or empty.
+	AndOrs     []AndOr           // List of AndOrs.
+	Separators []lexer.TokenType // ";", "&", or empty.
 }
 
 func (l List) Dump() string {
@@ -164,7 +164,7 @@ func (c CompoundList) Dump() string {
 // Term represents commands separated by ; or &.
 type Term struct {
 	AndOrs     []AndOr
-	Separators []string // ";" or "&" between and_ors.
+	Separators []lexer.TokenType // ";" or "&" between and_ors.
 }
 
 func (t Term) Dump() string {
