@@ -1,0 +1,165 @@
+package parser
+
+import (
+	"fmt"
+	"strconv"
+
+	"go.creack.net/gosh2/ast"
+	"go.creack.net/gosh2/lexer"
+)
+
+func parseCompleteCommand(p *parser) ast.CompleteCommand {
+	p.ignoreNewlines()
+
+	completeCmd := ast.CompleteCommand{}
+
+	completeCmd.List = parseList(p)
+	if p.curToken.Type == lexer.TokAmpersand || p.curToken.Type == lexer.TokSemicolon {
+		completeCmd.Separator = p.curToken.Value
+		p.nextToken()
+	}
+
+	p.expect(lexer.TokEOF, lexer.TokNewline)
+
+	return completeCmd
+}
+
+func parseList(p *parser) ast.List {
+	p.ignoreNewlines()
+
+	list := ast.List{}
+	for {
+		andOr := parseAndOr(p)
+		list.AndOrs = append(list.AndOrs, andOr)
+
+		if p.curToken.Type == lexer.TokSemicolon || p.curToken.Type == lexer.TokAmpersand {
+			// A list cannot end with a separator, if there is one, it must be followed by a and_or.
+			// If it is not, it is the end of the list.
+			if p.peekToken.Type == lexer.TokEOF || p.peekToken.Type == lexer.TokNewline {
+				return list
+			}
+			list.Separators = append(list.Separators, p.curToken.Value)
+			p.nextToken()
+			continue
+		}
+		break
+	}
+
+	p.expect(lexer.TokEOF, lexer.TokNewline)
+
+	return list
+}
+
+func parseAndOr(p *parser) ast.AndOr {
+	p.ignoreNewlines()
+
+	andOr := ast.AndOr{}
+	for {
+		pipeline := parsePipeline(p)
+		andOr.Pipelines = append(andOr.Pipelines, pipeline)
+		if p.curToken.Type == lexer.TokLogicalAnd || p.curToken.Type == lexer.TokLogicalOr {
+			andOr.Operators = append(andOr.Operators, p.curToken.Type)
+			p.nextToken()
+			continue
+		}
+		break
+	}
+	p.expect(lexer.TokEOF, lexer.TokNewline, lexer.TokAmpersand, lexer.TokSemicolon)
+	return andOr
+}
+
+func parsePipeline(p *parser) ast.Pipeline {
+	p.ignoreNewlines()
+
+	pipeline := ast.Pipeline{}
+
+	// Check for negation at the start of the pipeline.
+	if p.curToken.Type == lexer.TokBang {
+		pipeline.Negated = true
+		p.nextToken()
+	}
+
+	// Parse the commands.
+	for {
+		cmd := parseCommand(p)
+		pipeline.Commands = append(pipeline.Commands, cmd)
+
+		// If the next token is a pipe, continue parsing.
+		if p.curToken.Type == lexer.TokPipe {
+			p.nextToken()
+			continue
+		}
+
+		// Otherwise, break the loop.
+		break
+	}
+
+	p.expect(lexer.TokEOF, lexer.TokNewline, lexer.TokAmpersand, lexer.TokSemicolon, lexer.TokLogicalAnd, lexer.TokLogicalOr)
+	return pipeline
+}
+
+func parseCommand(p *parser) ast.SimpleCommand {
+	p.ignoreNewlines()
+
+	simpleCmd := ast.SimpleCommand{}
+
+	// Handle prefixes.
+	// TODO: Support variables.
+	simpleCmd.Prefix.Redirects = parseCommandRedirect(p)
+
+	simpleCmd.Name = p.expect(lexer.TokIdentifier).Value
+	p.nextToken()
+	for p.curToken.Type == lexer.TokIdentifier || p.curToken.Type == lexer.TokString {
+		simpleCmd.Suffix.Words = append(simpleCmd.Suffix.Words, p.curToken.Value)
+		p.nextToken()
+	}
+
+	// Handle suffixes.
+	simpleCmd.Suffix.Redirects = parseCommandRedirect(p)
+
+	p.expect(lexer.TokEOF, lexer.TokNewline, lexer.TokAmpersand, lexer.TokSemicolon, lexer.TokPipe, lexer.TokLogicalAnd, lexer.TokLogicalOr)
+	return simpleCmd
+}
+
+func parseCommandRedirect(p *parser) []ast.IORedirect {
+	var redirects []ast.IORedirect
+	for {
+		switch p.curToken.Type {
+		case lexer.TokRedirectIn, lexer.TokRedirectOut, lexer.TokDoubleRedirectOut:
+			// Parse the fd number.
+			fd, err := strconv.Atoi(p.curToken.Value)
+			if err != nil {
+				panic(fmt.Errorf("invalid fd number: %q", p.curToken.Value))
+			}
+			op := p.curToken.Type
+			p.nextToken()
+			red := ast.IORedirect{
+				Number:   fd,
+				Op:       op,
+				Filename: p.expect(lexer.TokString, lexer.TokIdentifier).Value,
+			}
+			p.nextToken()
+			redirects = append(redirects, red)
+		case lexer.TokDoubleRedirectIn:
+			// Parse the fd number.
+			fd, err := strconv.Atoi(p.curToken.Value)
+			if err != nil {
+				panic(fmt.Errorf("invalid fd number: %q", p.curToken.Value))
+			}
+			p.nextToken()
+			red := ast.IORedirect{
+				Number: fd,
+				Op:     lexer.TokDoubleRedirectIn,
+				// TODO: Need to consume token until EOF or HERE END.
+				HereDoc: p.expect(lexer.TokString, lexer.TokIdentifier).Value,
+			}
+			p.nextToken()
+			redirects = append(redirects, red)
+			_ = redirects
+			// HERE DOC. TBD.
+			panic("HERE DOC not implemented")
+		default:
+			return redirects
+		}
+	}
+}

@@ -1,2 +1,4 @@
 tmp/
 .air.toml
+.build/
+gosh2

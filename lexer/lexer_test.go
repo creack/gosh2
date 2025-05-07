@@ -1,8 +1,40 @@
 package lexer
 
 import (
+	"fmt"
 	"testing"
 )
+
+// Helper function to test the lexer
+func testLexer(t *testing.T, input string, expectedTokens []Token) {
+	t.Helper()
+
+	l := New(input)
+	var tokens []Token
+	for {
+		tok := l.NextToken()
+		tokens = append(tokens, tok)
+		if tok.Type == TokEOF {
+			break
+		}
+	}
+	if len(tokens) != len(expectedTokens) {
+		t.Fatalf("Expected %d tokens, got %d", len(expectedTokens), len(tokens))
+	}
+	for i, expectedToken := range expectedTokens {
+		token := tokens[i]
+
+		if token.Type != expectedToken.Type {
+			t.Fatalf("tests[%d] - tokentype wrong. expected=%q, got=%q (%s)",
+				i, expectedToken.Type, token.Type, token)
+		}
+
+		if token.Value != expectedToken.Value {
+			t.Fatalf("tests[%d] - literal wrong. expected=%q, got=%q",
+				i, expectedToken.Value, token.Value)
+		}
+	}
+}
 
 func TestTokenTypeString(t *testing.T) {
 	if len(tokenTypeStrings) != int(FinalToken) {
@@ -14,20 +46,6 @@ func TestLexerSingleCommand(t *testing.T) {
 	input := "ls"
 	expectedTokens := []Token{
 		{Type: TokIdentifier, Value: "ls"},
-		{Type: TokEOF, Value: ""},
-	}
-
-	testLexer(t, input, expectedTokens)
-}
-
-func TestLexerNumberExpression(t *testing.T) {
-	input := "45.2 + 5 * 4"
-	expectedTokens := []Token{
-		{Type: TokNumber, Value: "45.2"},
-		{Type: TokPlus, Value: "+"},
-		{Type: TokNumber, Value: "5"},
-		{Type: TokMultiply, Value: "*"},
-		{Type: TokNumber, Value: "4"},
 		{Type: TokEOF, Value: ""},
 	}
 
@@ -76,7 +94,7 @@ func TestLexerRedirection(t *testing.T) {
 	expectedTokens := []Token{
 		{Type: TokIdentifier, Value: "echo"},
 		{Type: TokIdentifier, Value: "hello"},
-		{Type: TokRedirectOut, Value: ">"},
+		{Type: TokRedirectOut, Value: "1"},
 		{Type: TokIdentifier, Value: "output.txt"},
 		{Type: TokEOF, Value: ""},
 	}
@@ -132,11 +150,11 @@ func TestLexerComplexCommand(t *testing.T) {
 		{Type: TokIdentifier, Value: "xargs"},
 		{Type: TokIdentifier, Value: "grep"},
 		{Type: TokString, Value: "\"func main\""},
-		{Type: TokRedirectOut, Value: ">"},
+		{Type: TokRedirectOut, Value: "1"},
 		{Type: TokIdentifier, Value: "results.txt"},
-		{Type: TokRedirectErr, Value: "2>"},
+		{Type: TokRedirectOut, Value: "2"},
 		{Type: TokIdentifier, Value: "errors.log"},
-		{Type: TokBackground, Value: "&"},
+		{Type: TokAmpersand, Value: "&"},
 		{Type: TokEOF, Value: ""},
 	}
 
@@ -170,9 +188,9 @@ func TestLexerBracketsForConditions(t *testing.T) {
 		{Type: TokBracketLeft, Value: "["},
 		{Type: TokVar, Value: "$count"},
 		{Type: TokIdentifier, Value: "-eq"},
-		{Type: TokNumber, Value: "10"},
+		{Type: TokIdentifier, Value: "10"},
 		{Type: TokBracketRight, Value: "]"},
-		{Type: TokIdentifier, Value: "&&"}, // Note: In a better implementation, this would be a separate operator type.
+		{Type: TokLogicalAnd, Value: "&&"},
 		{Type: TokIdentifier, Value: "echo"},
 		{Type: TokString, Value: "\"Count is 10\""},
 		{Type: TokEOF, Value: ""},
@@ -187,6 +205,7 @@ func TestLexerVariableDeclaration(t *testing.T) {
 		{Type: TokIdentifier, Value: "name"},
 		{Type: TokEquals, Value: "="},
 		{Type: TokString, Value: "\"John Doe\""},
+		{Type: TokNewline, Value: "\n"},
 		{Type: TokIdentifier, Value: "echo"},
 		{Type: TokVar, Value: "$name"},
 		{Type: TokEOF, Value: ""},
@@ -201,11 +220,11 @@ func TestLexerBraceExpansion(t *testing.T) {
 		{Type: TokIdentifier, Value: "touch"},
 		{Type: TokIdentifier, Value: "file"},
 		{Type: TokBraceLeft, Value: "{"},
-		{Type: TokNumber, Value: "1"},
+		{Type: TokIdentifier, Value: "1"},
 		{Type: TokComma, Value: ","},
-		{Type: TokNumber, Value: "2"},
+		{Type: TokIdentifier, Value: "2"},
 		{Type: TokComma, Value: ","},
-		{Type: TokNumber, Value: "3"},
+		{Type: TokIdentifier, Value: "3"},
 		{Type: TokBraceRight, Value: "}"},
 		{Type: TokIdentifier, Value: ".txt"},
 		{Type: TokEOF, Value: ""},
@@ -251,34 +270,13 @@ func TestLexerArrayAccess(t *testing.T) {
 		{Type: TokBraceLeft, Value: "${"},
 		{Type: TokIdentifier, Value: "files"},
 		{Type: TokBracketLeft, Value: "["},
-		{Type: TokNumber, Value: "0"},
+		{Type: TokIdentifier, Value: "0"},
 		{Type: TokBracketRight, Value: "]"},
 		{Type: TokBraceRight, Value: "}"},
 		{Type: TokEOF, Value: ""},
 	}
 
 	testLexer(t, input, expectedTokens)
-}
-
-// Helper function to test the lexer
-func testLexer(t *testing.T, input string, expectedTokens []Token) {
-	t.Helper()
-
-	l := NewLexer(input)
-
-	for i, expectedToken := range expectedTokens {
-		token := l.NextToken()
-
-		if token.Type != expectedToken.Type {
-			t.Fatalf("tests[%d] - tokentype wrong. expected=%q, got=%q (%s)",
-				i, expectedToken.Type, token.Type, token)
-		}
-
-		if token.Value != expectedToken.Value {
-			t.Fatalf("tests[%d] - literal wrong. expected=%q, got=%q",
-				i, expectedToken.Value, token.Value)
-		}
-	}
 }
 
 func TestLexerErrorCases(t *testing.T) {
@@ -292,7 +290,7 @@ func TestLexerErrorCases(t *testing.T) {
 			input: `echo "This string is not closed`,
 			expected: []Token{
 				{Type: TokIdentifier, Value: "echo"},
-				{Type: TokIllegal, Value: "unclosed double quote"},
+				{Type: TokError, Value: "unclosed double quote"},
 				{Type: TokEOF, Value: ""},
 			},
 		},
@@ -301,7 +299,7 @@ func TestLexerErrorCases(t *testing.T) {
 			input: `echo 'Single quoted string without closure`,
 			expected: []Token{
 				{Type: TokIdentifier, Value: "echo"},
-				{Type: TokIllegal, Value: "unclosed single quote"},
+				{Type: TokError, Value: "unclosed single quote"},
 				{Type: TokEOF, Value: ""},
 			},
 		},
@@ -316,6 +314,7 @@ func TestLexerErrorCases(t *testing.T) {
 			name:  "Only whitespace",
 			input: "   \t   \n   ",
 			expected: []Token{
+				{Type: TokNewline, Value: "\n"},
 				{Type: TokEOF, Value: ""},
 			},
 		},
@@ -397,7 +396,8 @@ func TestLexerErrorCases(t *testing.T) {
 			name:  "Special characters in command",
 			input: "!@#$%^&*()",
 			expected: []Token{
-				{Type: TokIllegal, Value: "unexpected character: '!'"},
+				{Type: TokBang, Value: "!"},
+				{Type: TokError, Value: "unexpected character: '@'"},
 				{Type: TokEOF, Value: ""},
 			},
 		},
@@ -407,6 +407,7 @@ func TestLexerErrorCases(t *testing.T) {
 			expected: []Token{
 				{Type: TokIdentifier, Value: "echo"},
 				{Type: TokIdentifier, Value: "hello"},
+				{Type: TokNewline, Value: "\n"},
 				{Type: TokIdentifier, Value: "echo"},
 				{Type: TokIdentifier, Value: "world"},
 				{Type: TokEOF, Value: ""},
@@ -459,21 +460,23 @@ func TestLexerErrorCases(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			l := NewLexer(tt.input)
-
-			for i, expected := range tt.expected {
-				token := l.NextToken()
-
-				if token.Type != expected.Type {
-					t.Fatalf("tests[%s][%d] - tokentype wrong. expected=%q (%s), got=%q (%s)",
-						tt.name, i, expected.Type, expected, token.Type, token)
-				}
-
-				if token.Value != expected.Value {
-					t.Fatalf("tests[%s][%d] - literal wrong. expected=%q, got=%q",
-						tt.name, i, expected.Value, token.Value)
-				}
-			}
+			testLexer(t, tt.input, tt.expected)
 		})
 	}
+}
+
+func TestErrorPos(t *testing.T) {
+	t.SkipNow()
+	input := "echo\nld  ? world"
+	lex := New(input)
+	lex.NextToken()
+	lex.NextToken()
+	token := lex.NextToken()
+	if token.Type != TokError {
+		t.Errorf("expected TokError, got %s", token.Type)
+	}
+	fmt.Println()
+	fmt.Println(token)
+	fmt.Println()
+	fmt.Printf("%q\n", input[token.pos:])
 }
