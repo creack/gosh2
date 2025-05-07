@@ -8,116 +8,7 @@ import (
 )
 
 const variableChars = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789_"
-const identifiderChars = variableChars + "."
-
-type stateFn func(*Lexer) stateFn
-
-// TokenType is the type of token.
-type TokenType int
-
-// Token types as constants.
-const (
-	TokIllegal TokenType = iota
-	TokEOF
-
-	// Identifiers + literals.
-	TokIdentifier
-	TokNumber
-	TokString
-	TokVar
-
-	// Operators.
-	TokPipe
-	TokRedirectIn
-	TokRedirectOut
-	TokAppendOut
-	TokRedirectErr
-	TokBackground
-	TokEquals
-	TokPlus
-	TokMultiply
-	TokDash
-	TokSlash
-	TokModulo
-
-	// Delimiters.
-	TokNewline
-	TokComma
-	TokSemicolon
-	TokQuoteDouble
-	TokQuoteSingle
-	TokParenLeft
-	TokParenRight
-	TokBraceLeft
-	TokBraceRight
-	TokBracketLeft
-	TokBracketRight
-
-	// End of tokens.
-	FinalToken
-)
-
-// String returns the string representation of the token type.
-func (tt TokenType) String() string {
-	return tokenTypeStrings[tt]
-}
-
-// Map of token types to their string representation for debugging.
-var tokenTypeStrings = map[TokenType]string{
-	TokIllegal: "ILLEGAL",
-	TokEOF:     "EOF",
-
-	TokIdentifier: "IDENTIFIER",
-	TokNumber:     "NUMBER",
-	TokString:     "STRING",
-	TokVar:        "VAR",
-
-	TokPipe:        "PIPE",
-	TokRedirectIn:  "REDIRECT_IN",
-	TokRedirectOut: "REDIRECT_OUT",
-	TokAppendOut:   "APPEND_OUT",
-	TokRedirectErr: "REDIRECT_ERR",
-	TokBackground:  "BACKGROUND",
-	TokEquals:      "EQUALS",
-	TokPlus:        "PLUS",
-	TokMultiply:    "MULTIPLY",
-	TokDash:        "DASH",
-	TokSlash:       "SLASH",
-	TokModulo:      "MODULO",
-
-	TokNewline:      "NEWLINE",
-	TokComma:        "COMMA",
-	TokSemicolon:    "SEMICOLON",
-	TokQuoteDouble:  "QUOTE_DOUBLE",
-	TokQuoteSingle:  "QUOTE_SINGLE",
-	TokParenLeft:    "PAREN_LEFT",
-	TokParenRight:   "PAREN_RIGHT",
-	TokBraceLeft:    "BRACE_LEFT",
-	TokBraceRight:   "BRACE_RIGHT",
-	TokBracketLeft:  "BRACKET_LEFT",
-	TokBracketRight: "BRACKET_RIGHT",
-}
-
-// Token represents a lexical token in our shell.
-type Token struct {
-	Type  TokenType
-	Value string
-
-	pos  int
-	line int
-}
-
-func (t Token) String() string {
-	switch {
-	case t.Type == TokEOF:
-		return "EOF"
-	case t.Type == TokIllegal:
-		return fmt.Sprintf("ILLEGAL[%d:%d]: %q", t.line, t.pos, t.Value)
-	case len(t.Value) > 10:
-		return fmt.Sprintf("%s[%d:%d]: %.10q", t.Type, t.line, t.pos, t.Value)
-	}
-	return fmt.Sprintf("%s[%d:%d]: %q", t.Type, t.line, t.pos, t.Value)
-}
+const identifiderChars = variableChars + ".-+*%/?"
 
 type Lexer struct {
 	input string
@@ -126,11 +17,37 @@ type Lexer struct {
 
 	atEOF bool
 
-	pos  int // Current position in input.
-	line int // Current line in input.
+	pos         int // Current position in input.
+	line        int // Current line in input.
+	linePos     int // Position of the current token in the line.
+	prevLineLen int
 
 	start     int // Position of the start of the current token.
 	startLine int // Line where the current token started.
+}
+
+// New creates a new Lexer for the given input.
+// This is just a placeholder for now.
+func New(input string) *Lexer {
+	l := &Lexer{
+		input:     input,
+		line:      1,
+		startLine: 1,
+	}
+	return l
+}
+
+func (l *Lexer) NextToken() Token {
+	l.curToken = Token{Type: TokEOF, Value: "EOF", pos: l.pos, line: l.line}
+	state := lexText
+	for {
+		state = state(l)
+		if state == nil {
+			// fmt.Printf("LEXER: %s\n", l.curToken)
+			// time.Sleep(1e9)
+			return l.curToken
+		}
+	}
 }
 
 func (l *Lexer) next() rune {
@@ -140,8 +57,11 @@ func (l *Lexer) next() rune {
 	}
 	r, n := utf8.DecodeRuneInString(l.input[l.pos:])
 	l.pos += n
+	l.linePos += n
 	if r == '\n' {
 		l.line++
+		l.prevLineLen = l.linePos
+		l.linePos = 0
 	}
 	return r
 }
@@ -154,8 +74,10 @@ func (l *Lexer) backup() {
 	}
 	r, n := utf8.DecodeLastRuneInString(l.input[:l.pos])
 	l.pos -= n
+	l.linePos -= n
 	if r == '\n' {
 		l.line--
+		l.linePos = l.prevLineLen
 	}
 }
 
@@ -211,159 +133,13 @@ func (l *Lexer) ignore() {
 
 func (l *Lexer) errorf(format string, args ...any) stateFn {
 	l.curToken = Token{
-		Type:  TokIllegal,
+		Type:  TokError,
 		Value: fmt.Sprintf(format, args...),
-		pos:   l.pos,
+		pos:   l.linePos,
 		line:  l.line,
 	}
 	l.start = 0
 	l.pos = 0
 	l.input = l.input[:0]
 	return nil
-}
-
-func (l *Lexer) NextToken() Token {
-	l.curToken = Token{Type: TokEOF, Value: "EOF", pos: l.pos, line: l.line}
-	state := lexText
-	for {
-		state = state(l)
-		if state == nil {
-			fmt.Printf("LEXER: %s\n", l.curToken)
-			return l.curToken
-		}
-	}
-}
-
-// NewLexer creates a new Lexer for the given input.
-// This is just a placeholder for now.
-func NewLexer(input string) *Lexer {
-	l := &Lexer{
-		input:     input,
-		line:      1,
-		startLine: 1,
-	}
-	return l
-}
-
-func lexText(l *Lexer) stateFn {
-	l.acceptRun(" \t\n") // Consume leading whitespaces.
-	l.ignore()           // Ignore leading whitespaces.
-	if l.atEOF {
-		return l.emit(TokEOF)
-	}
-
-	// List of runes that just advance one and emit a token.
-	singles := map[rune]TokenType{
-		'(': TokParenLeft,
-		')': TokParenRight,
-		'[': TokBracketLeft,
-		']': TokBracketRight,
-		'{': TokBraceLeft,
-		'}': TokBraceRight,
-		';': TokSemicolon,
-		'&': TokBackground,
-		'=': TokEquals,
-		'|': TokPipe,
-		'>': TokRedirectOut,
-		'+': TokPlus,
-		'-': TokDash,
-		'*': TokMultiply,
-		'/': TokSlash,
-		'%': TokModulo,
-		',': TokComma,
-	}
-
-	switch r := l.peek(); {
-	case r == 0:
-		return l.emit(TokEOF)
-	case r == '"', r == '\'':
-		return lexString(r)
-	case r == '$':
-		return lexDollar
-	case r == '&':
-		l.next()
-		if l.peek() == '&' {
-			l.next()
-			return l.emit(TokIdentifier)
-		}
-		return l.emit(TokBackground)
-	case r >= '0' && r <= '9':
-		return lexNumber
-	case r == ':':
-		l.next()
-		return lexIdentifier
-	case strings.ContainsRune(identifiderChars, r):
-		return lexIdentifier
-	default:
-		if tok, ok := singles[r]; ok {
-			l.next()
-			return l.emit(tok)
-		}
-		return l.errorf("unexpected character: %q", r)
-	}
-}
-
-func lexNumber(l *Lexer) stateFn {
-	const digits = "0123456789"
-	l.accept(digits)
-	if l.peek() == '>' {
-		if l.input[l.start] != '2' {
-			return l.errorf("unexpected character: %q", l.input[l.start])
-		}
-		l.next()
-		return l.emit(TokRedirectErr)
-	}
-	l.acceptRun(digits)
-	if l.peek() == '.' {
-		l.next()
-		l.acceptRun(digits)
-	}
-	return l.emit(TokNumber)
-}
-
-func lexDollar(l *Lexer) stateFn {
-	l.accept("$")
-	switch l.peek() {
-	case '$':
-		l.next()
-		return l.emit(TokVar)
-	case '(':
-		l.next()
-		return l.emit(TokParenLeft)
-	case '{':
-		l.next()
-		return l.emit(TokBraceLeft)
-	}
-	if !l.acceptRun(variableChars) {
-		// Case for lone '$', make it an identifier.
-		return lexIdentifier
-	}
-	return l.emit(TokVar)
-}
-
-func lexString(kind rune) stateFn {
-	return func(l *Lexer) stateFn {
-		l.accept(string(kind))
-		for {
-			r := l.next()
-			if r == 0 {
-				if kind == '"' {
-					return l.errorf("unclosed double quote")
-				}
-				return l.errorf("unclosed single quote")
-			}
-			if r == kind {
-				break
-			}
-			if r == '\\' {
-				l.next()
-			}
-		}
-		return l.emit(TokString)
-	}
-}
-
-func lexIdentifier(l *Lexer) stateFn {
-	l.acceptRun(identifiderChars)
-	return l.emit(TokIdentifier)
 }

@@ -13,51 +13,54 @@ type parser struct {
 
 	prevToken lexer.Token
 	curToken  lexer.Token
-
-	stmtLookupTable         lookupTable[stmtHandler]
-	nudLookupTable          lookupTable[nudHandler]
-	ledLookupTable          lookupTable[ledHandler]
-	bindingPowerLookupTable lookupTable[bindingPower]
+	peekToken lexer.Token
 }
 
 func newParser(lex *lexer.Lexer) *parser {
 	p := &parser{
 		lex: lex,
-
-		stmtLookupTable:         lookupTable[stmtHandler]{},
-		nudLookupTable:          lookupTable[nudHandler]{},
-		ledLookupTable:          lookupTable[ledHandler]{},
-		bindingPowerLookupTable: lookupTable[bindingPower]{},
 	}
-	p.createTokenLookups()
+	// Preload the peek token.
+	p.nextToken()
 	return p
 }
 
-func Parse(lex *lexer.Lexer) ast.BlockStmt {
-	var stms []ast.Stmt
+func Parse(lex *lexer.Lexer) ast.Program {
+	var cmds []ast.CompleteCommand
 
 	p := newParser(lex)
-	for p.curToken.Type != lexer.TokEOF {
+	for {
 		p.nextToken()
-
-		stms = append(stms, parseStmt(p))
+		for p.curToken.Type == lexer.TokNewline {
+			p.nextToken()
+		}
+		if p.curToken.Type == lexer.TokEOF || p.curToken.Type == lexer.TokError {
+			break
+		}
+		cmds = append(cmds, parseCompleteCommand(p))
 	}
 
-	return ast.BlockStmt{
-		Stmts: stms,
-	}
+	return ast.Program{Commands: cmds}
 }
 
 func (p *parser) nextToken() lexer.Token {
 	p.prevToken = p.curToken
-	p.curToken = p.lex.NextToken()
+	p.curToken = p.peekToken
+	p.peekToken = p.lex.NextToken()
 	return p.curToken
 }
 
-func (p *parser) expect(kind ...lexer.TokenType) {
+// expect checks if the current token is of the expected type.
+func (p *parser) expect(kind ...lexer.TokenType) lexer.Token {
 	if slices.Contains(kind, p.curToken.Type) {
-		p.nextToken()
-		return
+		curToken := p.curToken
+		return curToken
 	}
-	panic(fmt.Errorf("expected token %v but got %v", kind, p.curToken.Type))
+	panic(fmt.Errorf("expected token %v but got %s (%s)", kind, p.curToken.Type, p.curToken))
+}
+
+func (p *parser) ignoreNewlines() {
+	for p.curToken.Type == lexer.TokNewline {
+		p.nextToken()
+	}
 }
