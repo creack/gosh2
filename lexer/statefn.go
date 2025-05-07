@@ -92,14 +92,12 @@ func lexNumber(l *Lexer) stateFn {
 	const digits = "0123456789"
 	l.acceptRun(digits)
 	if peeked := l.peek(); peeked == '>' || peeked == '<' {
-		val := l.input[l.start:l.pos]
+		tok := l.thisToken(0)
 		l.next()
 		double := l.peek() == peeked
 		if double {
 			l.next()
 		}
-		tok := l.thisToken(0)
-		tok.Value = val
 		switch {
 		case peeked == '>' && !double:
 			tok.Type = TokRedirectOut

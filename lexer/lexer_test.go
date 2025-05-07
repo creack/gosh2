@@ -2,6 +2,8 @@ package lexer
 
 import (
 	"fmt"
+	"io"
+	"strings"
 	"testing"
 )
 
@@ -9,7 +11,7 @@ import (
 func testLexer(t *testing.T, input string, expectedTokens []Token) {
 	t.Helper()
 
-	l := New(input)
+	l := New(io.NopCloser(strings.NewReader(input)))
 	var tokens []Token
 	for {
 		tok := l.NextToken()
@@ -25,13 +27,13 @@ func testLexer(t *testing.T, input string, expectedTokens []Token) {
 		token := tokens[i]
 
 		if token.Type != expectedToken.Type {
-			t.Fatalf("tests[%d] - tokentype wrong. expected=%q, got=%q (%s)",
-				i, expectedToken.Type, token.Type, token)
+			t.Fatalf("tests[%d] - wrong type. expected=%q (%s), got=%q (%s)",
+				i, expectedToken.Type, expectedToken, token.Type, token)
 		}
 
 		if token.Value != expectedToken.Value {
-			t.Fatalf("tests[%d] - literal wrong. expected=%q, got=%q",
-				i, expectedToken.Value, token.Value)
+			t.Fatalf("tests[%d] - wrong value. expected=%q (%s), got=%q (%s)",
+				i, expectedToken.Value, expectedToken, token.Value, token)
 		}
 	}
 }
@@ -468,7 +470,7 @@ func TestLexerErrorCases(t *testing.T) {
 func TestErrorPos(t *testing.T) {
 	t.SkipNow()
 	input := "echo\nld  ? world"
-	lex := New(input)
+	lex := New(io.NopCloser(strings.NewReader(input)))
 	lex.NextToken()
 	lex.NextToken()
 	token := lex.NextToken()

@@ -2,6 +2,7 @@ package parser
 
 import (
 	"fmt"
+	"io"
 	"slices"
 
 	"go.creack.net/gosh2/ast"
@@ -13,7 +14,11 @@ type parser struct {
 
 	prevToken lexer.Token
 	curToken  lexer.Token
-	peekToken lexer.Token
+	// peekToken lexer.Token
+}
+
+type Parser interface {
+	NextCompleteCommand() *ast.CompleteCommand
 }
 
 func newParser(lex *lexer.Lexer) *parser {
@@ -21,8 +26,12 @@ func newParser(lex *lexer.Lexer) *parser {
 		lex: lex,
 	}
 	// Preload the peek token.
-	p.nextToken()
+	//p.nextToken()
 	return p
+}
+
+func New(r io.Reader) Parser {
+	return newParser(lexer.New(r))
 }
 
 func Parse(lex *lexer.Lexer) ast.Program {
@@ -30,23 +39,29 @@ func Parse(lex *lexer.Lexer) ast.Program {
 
 	p := newParser(lex)
 	for {
-		p.nextToken()
-		for p.curToken.Type == lexer.TokNewline {
-			p.nextToken()
-		}
-		if p.curToken.Type == lexer.TokEOF || p.curToken.Type == lexer.TokError {
+		cmd := p.NextCompleteCommand()
+		if cmd == nil {
 			break
 		}
-		cmds = append(cmds, parseCompleteCommand(p))
+		cmds = append(cmds, *cmd)
 	}
 
 	return ast.Program{Commands: cmds}
 }
 
+func (p *parser) NextCompleteCommand() *ast.CompleteCommand {
+	p.nextToken()
+	p.ignoreNewlines()
+	if p.curToken.Type == lexer.TokEOF || p.curToken.Type == lexer.TokError {
+		return nil
+	}
+	completeCmd := parseCompleteCommand(p)
+	return &completeCmd
+}
+
 func (p *parser) nextToken() lexer.Token {
 	p.prevToken = p.curToken
-	p.curToken = p.peekToken
-	p.peekToken = p.lex.NextToken()
+	p.curToken = p.lex.NextToken()
 	return p.curToken
 }
 

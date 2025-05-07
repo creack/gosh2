@@ -5,6 +5,7 @@ import (
 	"log"
 	"os"
 	"os/exec"
+	"strings"
 
 	"go.creack.net/gosh2/ast"
 	"go.creack.net/gosh2/lexer"
@@ -125,35 +126,34 @@ func executePipeline(pipeline ast.Pipeline) (int, error) {
 	return lastExitCode, nil
 }
 
-func evaluate(prog ast.Program) (int, error) {
+func evaluate(completeCmd ast.CompleteCommand) (int, error) {
 	exitCode := -1
-	for _, completeCmd := range prog.Commands {
-		_ = completeCmd.Separator
-		for _, andOr := range completeCmd.List.AndOrs {
-			_ = completeCmd.List.Separators
-			lastCmdSuccess := true
-			for i, pipeline := range andOr.Pipelines {
-				// If we have operators, check the last command's success/failure.
-				if i > 0 && i-1 < len(andOr.Operators) {
-					if andOr.Operators[i-1] == lexer.TokLogicalAnd && !lastCmdSuccess {
-						continue
-					}
-					if andOr.Operators[i-1] == lexer.TokLogicalOr && lastCmdSuccess {
-						continue
-					}
+	_ = completeCmd.Separator
+	for _, andOr := range completeCmd.List.AndOrs {
+		_ = completeCmd.List.Separators
+		lastCmdSuccess := true
+		for i, pipeline := range andOr.Pipelines {
+			// If we have operators, check the last command's success/failure.
+			if i > 0 && i-1 < len(andOr.Operators) {
+				if andOr.Operators[i-1] == lexer.TokLogicalAnd && !lastCmdSuccess {
+					continue
 				}
-				lastExitCode, err := executePipeline(pipeline)
-				if err != nil {
-					log.Printf("Pipeline %v failed: %s.\n", pipeline, err)
+				if andOr.Operators[i-1] == lexer.TokLogicalOr && lastCmdSuccess {
+					continue
 				}
-				lastCmdSuccess = err == nil && lastExitCode == 0
-				if pipeline.Negated {
-					lastCmdSuccess = !lastCmdSuccess
-				}
-				exitCode = lastExitCode
 			}
+			lastExitCode, err := executePipeline(pipeline)
+			if err != nil {
+				log.Printf("Pipeline %v failed: %s.\n", pipeline, err)
+			}
+			lastCmdSuccess = err == nil && lastExitCode == 0
+			if pipeline.Negated {
+				lastCmdSuccess = !lastCmdSuccess
+			}
+			exitCode = lastExitCode
 		}
 	}
+
 	return exitCode, nil
 }
 
@@ -162,13 +162,22 @@ func test() error {
 	input = "echo hello > foo; echo world >> foo; ls /dev/fd 7<foo; cat /dev/fd/7 7<foo"
 	input = "foo.sh 8> ret; echo why && echo ok1 || echo ko2 && echo ok2; cat ret; echo -1-"
 	input = "sdafasdfdsaf; echo yup; echo ok;"
-	prog := parser.Parse(lexer.New(input))
-	exitCode, err := evaluate(prog)
-	if err != nil {
-		log.Printf("evaluate error: %s.", err)
+
+	p := parser.New(strings.NewReader(input))
+	lastExitCode := -1
+	for {
+		cmd := p.NextCompleteCommand()
+		if cmd == nil {
+			break
+		}
+		exitCode, err := evaluate(*cmd)
+		if err != nil {
+			log.Printf("evaluate error: %s.", err)
+		}
+		lastExitCode = exitCode
 	}
-	os.Exit(exitCode)
-	return err
+	os.Exit(lastExitCode)
+	return nil
 }
 
 func main() {
