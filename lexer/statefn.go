@@ -157,13 +157,11 @@ func lexDollar(l *Lexer) stateFn {
 func lexString(kind rune) stateFn {
 	return func(l *Lexer) stateFn {
 		l.accept(string(kind))
+		l.ignore()
 		for {
 			r := l.next()
 			if r == 0 {
-				if kind == '"' {
-					return l.errorf("unclosed double quote")
-				}
-				return l.errorf("unclosed single quote")
+				return l.errorf("unclosed %q", kind)
 			}
 			if r == kind {
 				break
@@ -172,7 +170,10 @@ func lexString(kind rune) stateFn {
 				l.next()
 			}
 		}
-		return l.emit(TokString)
+		l.backup()
+		tok := l.thisToken(TokString)
+		l.next()
+		return l.emitToken(tok)
 	}
 }
 

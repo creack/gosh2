@@ -175,6 +175,7 @@ func TestParseStream(t *testing.T) {
 }
 
 func TestParserRedirects(t *testing.T) {
+	newInt := func(i int) *int { return &i }
 	for _, tt := range []struct {
 		input    string
 		expected ast.SimpleCommand
@@ -227,11 +228,11 @@ func TestParserRedirects(t *testing.T) {
 		},
 		{
 			input:    "ls 2>&3",
-			expected: mkCmdRedir("ls", nil, []ast.IORedirect{{Number: 2, Op: lexer.TokRedirectGreatAnd, ToNumber: 3}}),
+			expected: mkCmdRedir("ls", nil, []ast.IORedirect{{Number: 2, Op: lexer.TokRedirectGreatAnd, ToNumber: newInt(3)}}),
 		},
 		{
 			input:    "ls 4<&5",
-			expected: mkCmdRedir("ls", nil, []ast.IORedirect{{Number: 4, Op: lexer.TokRedirectLessAnd, ToNumber: 5}}),
+			expected: mkCmdRedir("ls", nil, []ast.IORedirect{{Number: 4, Op: lexer.TokRedirectLessAnd, ToNumber: newInt(5)}}),
 		},
 	} {
 		t.Run(tt.input, func(t *testing.T) {
@@ -253,4 +254,25 @@ func TestParserRedirects(t *testing.T) {
 			require.Equal(t, expect, prog)
 		})
 	}
+}
+
+func TestParserSingleQuotes(t *testing.T) {
+	// Create a lexer with some test input.
+	lex := lexer.New(strings.NewReader("echo 'hello\nworld!'\n"))
+
+	// Parse the input.
+	prog := Parse(lex)
+	cmd := mkCmd("echo hello\nworld!")
+	expect := ast.Program{Commands: []ast.CompleteCommand{{
+		List: ast.List{AndOrs: []ast.AndOr{{
+			Pipelines: []ast.Pipeline{{
+				Commands: []ast.Command{cmd},
+				Negated:  false,
+			}},
+			Operators: nil,
+		}}},
+		Separator: 0,
+	}}}
+
+	require.Equal(t, expect, prog)
 }

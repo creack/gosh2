@@ -24,6 +24,8 @@ func (f *FileWrap) Close() error {
 func setupCommandIO(simpleCmd ast.SimpleCommand, cmd *exec.Cmd) error {
 	for _, elem := range append(simpleCmd.Prefix.Redirects, simpleCmd.Suffix.Redirects...) {
 		var openFlags int
+		var file *os.File
+
 		switch elem.Op {
 		case lexer.TokRedirectLess:
 			openFlags |= os.O_RDONLY
@@ -34,11 +36,20 @@ func setupCommandIO(simpleCmd ast.SimpleCommand, cmd *exec.Cmd) error {
 		case lexer.TokRedirectLessGreat:
 			openFlags |= os.O_CREATE | os.O_RDWR
 		case lexer.TokRedirectLessAnd:
+		case lexer.TokRedirectDoubleLess:
+			r, w, err := os.Pipe()
+			if err != nil {
+				return fmt.Errorf("heredoc pipe: %w", err)
+			}
+			go func() {
+				defer func() { _ = w.Close() }() // Best effort.
+				fmt.Fprint(w, elem.HereDoc)
+			}()
+			file = r
 		default:
 			return fmt.Errorf("unsupported redirect %q", elem.Op)
 		}
 
-		var file *os.File
 		if elem.Filename != "" {
 			// Check for invalid case `echo hello 4>& foo`.
 			// The `>&` redirect only support '1' (or empty, which defaults to 1)
@@ -67,7 +78,7 @@ func setupCommandIO(simpleCmd ast.SimpleCommand, cmd *exec.Cmd) error {
 			if file == nil {
 				return fmt.Errorf("bad file descriptior %d\n", *elem.ToNumber)
 			}
-		} else {
+		} else if file == nil {
 			return fmt.Errorf("missing filename or fd for %q", elem.Op)
 		}
 
@@ -179,6 +190,7 @@ func test() (int, error) {
 	// input = "foo.sh 7<foo | cat -e; echo --; ls; echo --; cat a"
 	// input = "cat /dev/fd/9 9<&7 7<foo"
 	// input = "echo hello 8>bar >&8; cat bar"
+	input = "echo ___; cat -e<<EOF\nhello\nworld\nEOF\necho ^^^^"
 
 	p := parser.New(strings.NewReader(input))
 	lastExitCode := -1

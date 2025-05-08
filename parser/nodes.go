@@ -169,24 +169,36 @@ func parseCommandRedirect(p *parser) []ast.IORedirect {
 			}
 			p.nextToken()
 			redirects = append(redirects, red)
+
 		case lexer.TokRedirectDoubleLess:
 			// Parse the fd number.
 			fd, err := strconv.Atoi(p.curToken.Value)
 			if err != nil {
 				panic(fmt.Errorf("invalid fd number: %q", p.curToken.Value))
 			}
-			p.nextToken()
-			red := ast.IORedirect{
-				Number: fd,
-				Op:     lexer.TokRedirectDoubleLess,
-				// TODO: Need to consume token until EOF or HERE END.
-				HereDoc: p.expect(lexer.TokString, lexer.TokIdentifier).Value,
+			p.nextToken() // Consume the fd number.
+			hereEnd := p.expect(lexer.TokString, lexer.TokIdentifier).Value
+			p.nextToken()              // Consume the hereEnd token.
+			p.expect(lexer.TokNewline) // We exepect a newline token here.
+			p.nextToken()              // Consume the newline token.
+
+			// Consume all tokens until we reach the hereEnd token.
+			hereDoc := ""
+			for p.curToken.Type != lexer.TokEOF && p.curToken.Type != lexer.TokError && p.curToken.Value != hereEnd {
+				hereDoc += p.curToken.Value
+				p.nextToken()
 			}
-			p.nextToken()
+			// Consume the hereEnd token.
+			if p.curToken.Value == hereEnd {
+				p.nextToken()
+			}
+			red := ast.IORedirect{
+				Number:  fd,
+				Op:      lexer.TokRedirectDoubleLess,
+				HereDoc: hereDoc,
+			}
 			redirects = append(redirects, red)
-			_ = redirects
-			// HERE DOC. TBD.
-			panic("HERE DOC not implemented")
+
 		default:
 			return redirects
 		}
