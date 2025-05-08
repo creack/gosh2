@@ -42,7 +42,7 @@ func New(input io.Reader) *Lexer {
 }
 
 func (l *Lexer) NextToken() Token {
-	l.curToken = Token{Type: TokEOF, Value: "EOF", pos: l.pos, line: l.line}
+	l.curToken = Token{Type: TokEOF, pos: l.pos, line: l.line}
 	if l.atEOF {
 		return l.curToken
 	}
@@ -50,7 +50,7 @@ func (l *Lexer) NextToken() Token {
 	for {
 		state = state(l)
 		if state == nil {
-			// fmt.Printf("LEXER: %s\n", l.curToken)
+			fmt.Printf("LEXER: %s\n", l.curToken)
 			// time.Sleep(1e9)
 			return l.curToken
 		}

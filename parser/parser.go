@@ -22,12 +22,9 @@ type Parser interface {
 }
 
 func newParser(lex *lexer.Lexer) *parser {
-	p := &parser{
+	return &parser{
 		lex: lex,
 	}
-	// Preload the peek token.
-	//p.nextToken()
-	return p
 }
 
 func New(r io.Reader) Parser {
