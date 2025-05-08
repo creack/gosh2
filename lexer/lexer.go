@@ -12,7 +12,7 @@ import (
 )
 
 const variableChars = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789_"
-const identifiderChars = variableChars + ".-+*%/?^"
+const identifiderChars = variableChars + ",.-+*%/?^[]{}"
 
 type Lexer struct {
 	reader *bufio.Reader

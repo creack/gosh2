@@ -197,7 +197,7 @@ func test() (int, error) {
 	input = "rm -f foo bar; ls -l > bar | foo.sh | wc -c | cat -e > foo; echo --; cat bar; echo --; cat foo"
 	input = `echo 'hello\
 world'''a`
-
+	input = `echo [?b]`
 	cmd := exec.Command("bash", "--posix")
 	cmd.Stdin = strings.NewReader(input)
 	cmd.Stdout = os.Stdout
@@ -241,6 +241,7 @@ func main() {
 	if err := os.WriteFile("foo", []byte("foo\n"), 0644); err != nil {
 		log.Fatalf("Fail: %s.", err)
 	}
+	exec.Command("touch", "b", "bb", "a", "aa", "ast", "bara", "foo", "foo.sh", "go.mod", "go.sum", "lexer", "tmp", "sh").Run()
 
 	lastExitCode, err := test()
 	_ = os.RemoveAll(tmpDir) // Best effort cleanup.
