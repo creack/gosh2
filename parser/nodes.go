@@ -107,8 +107,7 @@ func parseCommand(p *parser, endToken []lexer.TokenType) ast.SimpleCommand {
 	simpleCmd := ast.SimpleCommand{}
 
 	// Handle prefixes.
-	// TODO: Support variables.
-	simpleCmd.Prefix.Redirects = parseCommandRedirect(p)
+	simpleCmd.Prefix = parseCommandPrefix(p)
 
 	// Handle the command name.
 	// TODO: Add support for `e"c"h'o' hello world`.
@@ -137,6 +136,43 @@ func parseCommand(p *parser, endToken []lexer.TokenType) ast.SimpleCommand {
 
 	p.expect(endToken...)
 	return simpleCmd
+}
+
+func parseCommandPrefix(p *parser) ast.CmdPrefix {
+	var assignments []string
+	var redirects []ast.IORedirect
+	for {
+		assign := parseVariableAssignments(p)
+		reds := parseCommandRedirect(p)
+		if len(assign) == 0 && len(reds) == 0 {
+			return ast.CmdPrefix{
+				Assignments: assignments,
+				Redirects:   redirects,
+			}
+		}
+		assignments = append(assignments, assign...)
+		redirects = append(redirects, reds...)
+	}
+}
+
+func parseVariableAssignments(p *parser) []string {
+	var out []string
+
+	for {
+		p.ignoreWhitespaces()
+
+		if !p.curToken.Type.IsOneOf(lexer.TokIdentifier, lexer.TokSingleQuoteString, lexer.TokDoubleQuoteString, lexer.TokNumber) {
+			return out
+		}
+		if p.peek().Type != lexer.TokEquals {
+			return out
+		}
+		name := p.expectIdentifierStr().Value
+		p.nextToken() // Consume the var name.
+		p.nextToken() // Consume the equals sign.
+		out = append(out, name+"="+p.expectIdentifierStr().Value)
+		p.nextToken() // Consume the var value.
+	}
 }
 
 func parseCommandRedirect(p *parser) []ast.IORedirect {
