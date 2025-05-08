@@ -5,8 +5,6 @@ import "strings"
 type stateFn func(*Lexer) stateFn
 
 func lexText(l *Lexer) stateFn {
-	l.acceptRun(" \t") // Consume leading whitespaces.
-	l.ignore()         // Ignore leading whitespaces.
 	if l.atEOF {
 		return l.emit(TokEOF)
 	}
@@ -29,6 +27,11 @@ func lexText(l *Lexer) stateFn {
 	switch r := l.peek(); {
 	case r == 0:
 		return l.emit(TokEOF)
+	case r == ' ' || r == '\t':
+		l.acceptRun(" \t")
+		return l.emit(TokWhitespace)
+	case r == '\\':
+		return lexIdentifier
 	case r == '"', r == '\'':
 		return lexString(r)
 	case r == '$':
@@ -166,18 +169,26 @@ func lexString(kind rune) stateFn {
 			if r == kind {
 				break
 			}
-			if r == '\\' {
+			if kind == '"' && r == '\\' { // Single quote doesn't escape.
 				l.next()
 			}
 		}
-		l.backup()
-		tok := l.thisToken(TokString)
-		l.next()
+		tokType := TokSingleQuoteString
+		if kind == '"' {
+			tokType = TokDoubleQuoteString
+		}
+		tok := l.thisToken(tokType)
+		tok.Value = strings.TrimSuffix(tok.Value, string(kind))
 		return l.emitToken(tok)
 	}
 }
 
 func lexIdentifier(l *Lexer) stateFn {
 	l.acceptRun(identifiderChars)
+	if l.peek() == '\\' {
+		l.next() // Consume the backslash.
+		l.next() // Consume the escaped character.
+		return lexIdentifier
+	}
 	return l.emit(TokIdentifier)
 }

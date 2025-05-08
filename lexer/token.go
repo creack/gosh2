@@ -1,6 +1,9 @@
 package lexer
 
-import "fmt"
+import (
+	"fmt"
+	"slices"
+)
 
 // TokenType is the type of token.
 type TokenType int
@@ -12,7 +15,8 @@ const (
 
 	// Identifiers + literals.
 	TokIdentifier
-	TokString
+	TokSingleQuoteString
+	TokDoubleQuoteString
 	TokNumber
 	TokVar
 
@@ -34,15 +38,13 @@ const (
 	TokLogicalOr
 
 	// Delimiters.
+	TokWhitespace
 	TokNewline
 	TokPipe
 	TokComma
 	TokSemicolon
 	TokDoubleSemicolon
 	TokAmpersand
-
-	TokQuoteDouble
-	TokQuoteSingle
 
 	TokParenLeft
 	TokParenRight
@@ -65,10 +67,11 @@ var tokenTypeStrings = map[TokenType]string{
 	TokError: "ERROR",
 	TokEOF:   "EOF",
 
-	TokIdentifier: "IDENTIFIER",
-	TokString:     "STRING",
-	TokNumber:     "NUMBER",
-	TokVar:        "VAR",
+	TokIdentifier:        "IDENTIFIER",
+	TokSingleQuoteString: "SINGLE_QUOTE_STRING",
+	TokDoubleQuoteString: "DOUBLE_QUOTE_STRING",
+	TokNumber:            "NUMBER",
+	TokVar:               "VAR",
 
 	TokRedirectLess:           "REDIRECT_IN",         // '<'.
 	TokRedirectGreat:          "REDIRECT_OUT",        // '>'.
@@ -85,6 +88,7 @@ var tokenTypeStrings = map[TokenType]string{
 	TokLogicalAnd: "LOGICAL_AND",
 	TokLogicalOr:  "LOGICAL_OR",
 
+	TokWhitespace:      "WHITESPACE",
 	TokNewline:         "NEWLINE",
 	TokPipe:            "PIPE",
 	TokComma:           "COMMA",
@@ -92,15 +96,16 @@ var tokenTypeStrings = map[TokenType]string{
 	TokDoubleSemicolon: "DOUBLE_SEMICOLON",
 	TokAmpersand:       "AMPERSAND",
 
-	TokQuoteDouble: "QUOTE_DOUBLE",
-	TokQuoteSingle: "QUOTE_SINGLE",
-
 	TokParenLeft:    "PAREN_LEFT",
 	TokParenRight:   "PAREN_RIGHT",
 	TokBraceLeft:    "BRACE_LEFT",
 	TokBraceRight:   "BRACE_RIGHT",
 	TokBracketLeft:  "BRACKET_LEFT",
 	TokBracketRight: "BRACKET_RIGHT",
+}
+
+func (tt TokenType) IsOneOf(t ...TokenType) bool {
+	return slices.Contains(t, tt)
 }
 
 // Token represents a lexical token in our shell.
@@ -118,8 +123,8 @@ func (t Token) String() string {
 		return "EOF"
 	case t.Type == TokError:
 		return t.errorString()
-	case len(t.Value) > 10:
-		return fmt.Sprintf("%s[%d:%d]: %.10q", t.Type, t.line, t.pos, t.Value)
+	case len(t.Value) > 16:
+		return fmt.Sprintf("%s[%d:%d]: %.16q", t.Type, t.line, t.pos, t.Value)
 	}
 	return fmt.Sprintf("%s[%d:%d]: %q", t.Type, t.line, t.pos, t.Value)
 }
