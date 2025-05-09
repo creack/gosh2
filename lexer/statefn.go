@@ -14,13 +14,8 @@ func lexText(l *Lexer) stateFn {
 		'\n': TokNewline,
 		'(':  TokParenLeft,
 		')':  TokParenRight,
-		'[':  TokBracketLeft,
-		']':  TokBracketRight,
-		'{':  TokBraceLeft,
-		'}':  TokBraceRight,
 		'&':  TokAmpersand,
 		'=':  TokEquals,
-		',':  TokComma,
 		'!':  TokBang,
 	}
 

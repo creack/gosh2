@@ -58,6 +58,9 @@ func (p *parser) NextCompleteCommand() *ast.CompleteCommand {
 func (p *parser) nextToken() lexer.Token {
 	p.prevToken = p.curToken
 	p.curToken = p.lex.NextToken()
+	if p.curToken.Type == lexer.TokIdentifier {
+		p.curToken.Value = evalGlobing(p.curToken.Value)
+	}
 	return p.curToken
 }
 
