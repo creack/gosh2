@@ -5,6 +5,7 @@ import (
 	"io"
 
 	"go.creack.net/gosh2/ast"
+	"go.creack.net/gosh2/executor"
 	"go.creack.net/gosh2/lexer"
 )
 
@@ -15,6 +16,8 @@ type parser struct {
 	curToken  lexer.Token
 
 	peekToken *lexer.Token // Buffer.
+
+	inBacktick bool
 }
 
 type Parser interface {
@@ -46,6 +49,25 @@ func Parse(lex *lexer.Lexer) ast.Program {
 	return ast.Program{Commands: cmds}
 }
 
+func Run(input io.Reader, output io.Writer) (int, error) {
+	p := New(input)
+
+	var lastExitCode int
+	for {
+		cmd := p.NextCompleteCommand()
+		if cmd == nil {
+			break
+		}
+		exitCode, err := executor.Evaluate(*cmd, output)
+		if err != nil {
+			return exitCode, err
+		}
+		lastExitCode = exitCode
+	}
+
+	return lastExitCode, nil
+}
+
 func (p *parser) NextCompleteCommand() *ast.CompleteCommand {
 	p.nextToken()
 	p.ignoreWhitespaces()
@@ -59,14 +81,11 @@ func (p *parser) NextCompleteCommand() *ast.CompleteCommand {
 func (p *parser) nextToken() lexer.Token {
 	p.prevToken = p.curToken
 	if p.peekToken != nil {
-		p.curToken = *p.peekToken
+		p.curToken = p.evalToken(*p.peekToken)
 		p.peekToken = nil
 		return p.curToken
 	}
-	p.curToken = p.lex.NextToken()
-	if p.curToken.Type == lexer.TokIdentifier {
-		p.curToken.Value = evalGlobing(p.curToken.Value)
-	}
+	p.curToken = p.evalToken(p.lex.NextToken())
 	return p.curToken
 }
 
@@ -76,6 +95,25 @@ func (p *parser) peek() lexer.Token {
 	}
 	tok := p.lex.NextToken()
 	p.peekToken = &tok
+	return tok
+}
+
+func (p *parser) evalToken(tok lexer.Token) lexer.Token {
+	switch tok.Type {
+	case lexer.TokIdentifier:
+		tok.Value = evalGlobing(tok.Value)
+	case lexer.TokBacktick:
+		if p.inBacktick {
+			p.inBacktick = false
+			return tok
+		}
+		p.inBacktick = true
+		p.curToken = tok
+		return p.evalBacktick()
+	case lexer.TokCmdSubstitution:
+		p.curToken = tok
+		return p.evalCommandSubstitution()
+	}
 	return tok
 }
 

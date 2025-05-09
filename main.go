@@ -7,189 +7,9 @@ import (
 	"os/exec"
 	"strings"
 
-	"go.creack.net/gosh2/ast"
-	"go.creack.net/gosh2/lexer"
+	"github.com/kr/pretty"
 	"go.creack.net/gosh2/parser"
 )
-
-type FileWrap struct {
-	*os.File
-}
-
-func (f *FileWrap) Close() error {
-	fmt.Printf("Checking if file %q is closed\n", f.Name())
-	return f.File.Close()
-}
-
-func setupCommandIO(simpleCmd ast.SimpleCommand, cmd *exec.Cmd) error {
-	for _, elem := range append(simpleCmd.Prefix.Redirects, simpleCmd.Suffix.Redirects...) {
-		var openFlags int
-		var file *os.File
-
-		switch elem.Op {
-		case lexer.TokRedirectLess:
-			openFlags |= os.O_RDONLY
-		case lexer.TokRedirectGreat, lexer.TokRedirectGreatAnd:
-			openFlags |= os.O_CREATE | os.O_TRUNC | os.O_WRONLY
-		case lexer.TokRedirectDoubleGreat:
-			openFlags |= os.O_CREATE | os.O_APPEND | os.O_WRONLY
-		case lexer.TokRedirectLessGreat:
-			openFlags |= os.O_CREATE | os.O_RDWR
-		case lexer.TokRedirectLessAnd:
-		case lexer.TokRedirectDoubleLess:
-			r, w, err := os.Pipe()
-			if err != nil {
-				return fmt.Errorf("heredoc pipe: %w", err)
-			}
-			go func() {
-				defer func() { _ = w.Close() }() // Best effort.
-				fmt.Fprint(w, elem.HereDoc)
-			}()
-			file = r
-		default:
-			return fmt.Errorf("unsupported redirect %q", elem.Op)
-		}
-
-		if elem.Filename != "" {
-			// Check for invalid case `echo hello 4>& foo`.
-			// The `>&` redirect only support '1' (or empty, which defaults to 1)
-			// when used with a target filename.
-			if elem.Op == lexer.TokRedirectGreatAnd && elem.Number != 1 {
-				return fmt.Errorf("ambiguous redirect %q", elem.Op)
-			}
-			f, err := os.OpenFile(elem.Filename, openFlags, 0o644)
-			if err != nil {
-				return fmt.Errorf("openfile %q: %w", elem.Filename, err)
-			}
-			file = f
-		} else if elem.ToNumber != nil {
-			switch *elem.ToNumber {
-			case 0:
-				file, _ = cmd.Stdin.(*os.File)
-			case 1:
-				file, _ = cmd.Stdout.(*os.File)
-			case 2:
-				file, _ = cmd.Stderr.(*os.File)
-			default:
-				if len(cmd.ExtraFiles) > *elem.ToNumber-3 {
-					file = cmd.ExtraFiles[*elem.ToNumber-3]
-				}
-			}
-			if file == nil {
-				return fmt.Errorf("bad file descriptior %d\n", *elem.ToNumber)
-			}
-		} else if file == nil {
-			return fmt.Errorf("missing filename or fd for %q", elem.Op)
-		}
-
-		switch elem.Number {
-		case 0:
-			cmd.Stdin = file
-		case 1:
-			cmd.Stdout = file
-			// Case for `>& filename`, redirect both stdout and stderr to the file.
-			if elem.Op == lexer.TokRedirectGreatAnd && elem.Filename != "" {
-				cmd.Stderr = file
-			}
-		case 2:
-			cmd.Stderr = file
-		default:
-			// Go pass down FDs via the ExtraFiles slice.
-			// Any entry in the slice will start at fd 3 (i.e. after stdin, stdout, stderr).
-			if len(cmd.ExtraFiles) <= elem.Number-3 {
-				extraFiles := make([]*os.File, elem.Number-3+1)
-				copy(extraFiles, cmd.ExtraFiles)
-				cmd.ExtraFiles = extraFiles
-			}
-			cmd.ExtraFiles[elem.Number-3] = file
-		}
-	}
-	return nil
-}
-
-func executePipeline(pipeline ast.Pipeline) (int, error) {
-	var cmds []*exec.Cmd
-	var simpleCmds []ast.SimpleCommand
-	// Create exec.Cmd for each command in the pipeline.
-	for _, pipeCmd := range pipeline.Commands {
-		simpleCmd, _ := pipeCmd.(ast.SimpleCommand)
-		simpleCmds = append(simpleCmds, simpleCmd)
-		cmd := exec.Command(simpleCmd.Name, simpleCmd.Suffix.Words...)
-		cmd.Env = append(os.Environ(), simpleCmd.Prefix.Assignments...)
-		cmds = append(cmds, cmd)
-	}
-
-	// Set stdin/stdout/stderr for the last command.
-	lastCmd := cmds[len(cmds)-1]
-	lastCmd.Stdin = os.Stdin
-	lastCmd.Stdout = os.Stdout
-	lastCmd.Stderr = os.Stderr
-	// handle io redirections for the last command.
-	if err := setupCommandIO(simpleCmds[len(simpleCmds)-1], lastCmd); err != nil {
-		return -1, fmt.Errorf("setup %q: %w", lastCmd.Path, err)
-	}
-
-	// For every other command in the pipeline, hook stdin to the previous command's stdout.
-	for i := len(cmds) - 1; i > 0; i-- {
-		cmds[i].Stdin, _ = cmds[i-1].StdoutPipe()
-		cmds[i-1].Stderr = os.Stderr
-		if err := setupCommandIO(simpleCmds[i-1], cmds[i-1]); err != nil {
-			return -1, fmt.Errorf("setup %q: %w", cmds[i-1].Path, err)
-		}
-	}
-
-	// Start all commands in the pipeline.
-	for _, cmd := range cmds {
-		if err := cmd.Start(); err != nil {
-			return -1, fmt.Errorf("start %q: %w", cmd.Path, err)
-		}
-	}
-	// Wait on all commands in the pipeline. Keep track of the last exit code.
-	lastExitCode := -1
-	const optPipefail = false // TODO: Actually implement pipefail.
-	for _, cmd := range cmds {
-		err := cmd.Wait()
-		if cmd.ProcessState != nil {
-			lastExitCode = cmd.ProcessState.ExitCode()
-		}
-		if err != nil && optPipefail {
-			return lastExitCode, fmt.Errorf("wait %q: %w", cmd.Path, err)
-		}
-	}
-
-	return lastExitCode, nil
-}
-
-func evaluate(completeCmd ast.CompleteCommand) (int, error) {
-	exitCode := -1
-	_ = completeCmd.Separator
-	for _, andOr := range completeCmd.List.AndOrs {
-		_ = completeCmd.List.Separators
-		lastCmdSuccess := true
-		for i, pipeline := range andOr.Pipelines {
-			// If we have operators, check the last command's success/failure.
-			if i > 0 && i-1 < len(andOr.Operators) {
-				if andOr.Operators[i-1] == lexer.TokLogicalAnd && !lastCmdSuccess {
-					continue
-				}
-				if andOr.Operators[i-1] == lexer.TokLogicalOr && lastCmdSuccess {
-					continue
-				}
-			}
-			lastExitCode, err := executePipeline(pipeline)
-			if err != nil {
-				log.Printf("Pipeline %v failed: %s.\n", pipeline, err)
-			}
-			lastCmdSuccess = err == nil && lastExitCode == 0
-			if pipeline.Negated {
-				lastCmdSuccess = !lastCmdSuccess
-			}
-			exitCode = lastExitCode
-		}
-	}
-
-	return exitCode, nil
-}
 
 func test() (int, error) {
 	input := ""
@@ -207,7 +27,15 @@ func test() (int, error) {
 	input = `echo 'hello\
 world'''a`
 	input = `echo [?b]`
+	input = "echo hello > foo; foo.sh <> foo; echo --; cat foo"
 	input = `fooa=bar >bar foo=foo sh -c 'echo $foo'; cat -e bar`
+	input = "/bin/echo `/bin/echo \\`/bin/echo hello\\``"
+	input = "echo z$(echo b$(echo c$(echo d$(echo ehello))))a"
+	input = "echo a`ls`b"
+	input = "echo a`exit 1`;echo bb"
+	input = "echo a`sh -c \"echo oka; echo okb >&2; echo okc\"`b"
+	input = "(echo a`sh -c \"echo oka; echo okb >&2; echo okc\"`b 2>&1) | cat -e"
+	input = "(echo hello | cat)"
 
 	cmd := exec.Command("bash", "--posix")
 	cmd.Stdin = strings.NewReader(input)
@@ -221,24 +49,22 @@ world'''a`
 	fmt.Printf("------GOSH-------\n")
 	defer fmt.Printf("------!gosh-----\n")
 
-	p := parser.New(strings.NewReader(input))
-	lastExitCode := -1
-	for {
-		cmd := p.NextCompleteCommand()
-		if cmd == nil {
-			break
-		}
-		exitCode, err := evaluate(*cmd)
-		if err != nil {
-			log.Printf("evaluate error: %s.", err)
-		}
-		lastExitCode = exitCode
+	if false {
+		p := parser.New(strings.NewReader(input))
+		pretty.Println(p.NextCompleteCommand())
 	}
-
-	return lastExitCode, nil
+	return parser.Run(strings.NewReader(input), os.Stdout)
 }
 
 func main() {
+	if len(os.Args) > 1 && os.Args[1] == "-sub" {
+		exitCode, err := parser.Run(os.Stdin, os.Stdout)
+		if exitCode == 0 && err != nil {
+			log.Fatalf("Sub fail: %s.", err)
+		}
+		os.Exit(exitCode)
+		return
+	}
 	for i := 3; i <= 7; i++ {
 		_ = os.NewFile(uintptr(i), "").Close()
 	}
