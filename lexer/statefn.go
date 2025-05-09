@@ -17,6 +17,7 @@ func lexText(l *Lexer) stateFn {
 		'&':  TokAmpersand,
 		'=':  TokEquals,
 		'!':  TokBang,
+		'`':  TokBacktick,
 	}
 
 	switch r := l.peek(); {
@@ -104,6 +105,7 @@ func lexRedirect(l *Lexer) stateFn {
 		tok.Type = TokRedirectDoubleGreat
 	case peeked == '>' && nextTok == '&':
 		l.next()
+		l.ignore() // Ignore the '>&' so we can get the fd.
 		tok.Type = TokRedirectGreatAnd
 	case peeked == '>' && nextTok == '|':
 		l.next()
@@ -140,7 +142,7 @@ func lexDollar(l *Lexer) stateFn {
 		return l.emit(TokVar)
 	case '(':
 		l.next()
-		return l.emit(TokParenLeft)
+		return l.emit(TokCmdSubstitution)
 	case '{':
 		l.next()
 		return l.emit(TokBraceLeft)

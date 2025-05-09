@@ -45,7 +45,9 @@ const (
 	TokSemicolon
 	TokDoubleSemicolon
 	TokAmpersand
+	TokBacktick
 
+	TokCmdSubstitution // $(
 	TokParenLeft
 	TokParenRight
 	TokBraceLeft
@@ -95,13 +97,15 @@ var tokenTypeStrings = map[TokenType]string{
 	TokSemicolon:       "SEMICOLON",
 	TokDoubleSemicolon: "DOUBLE_SEMICOLON",
 	TokAmpersand:       "AMPERSAND",
+	TokBacktick:        "BACKTICK",
 
-	TokParenLeft:    "PAREN_LEFT",
-	TokParenRight:   "PAREN_RIGHT",
-	TokBraceLeft:    "BRACE_LEFT",
-	TokBraceRight:   "BRACE_RIGHT",
-	TokBracketLeft:  "BRACKET_LEFT",
-	TokBracketRight: "BRACKET_RIGHT",
+	TokCmdSubstitution: "CMD_SUBSTITUTION",
+	TokParenLeft:       "PAREN_LEFT",
+	TokParenRight:      "PAREN_RIGHT",
+	TokBraceLeft:       "BRACE_LEFT",
+	TokBraceRight:      "BRACE_RIGHT",
+	TokBracketLeft:     "BRACKET_LEFT",
+	TokBracketRight:    "BRACKET_RIGHT",
 }
 
 func (tt TokenType) IsOneOf(t ...TokenType) bool {

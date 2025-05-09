@@ -9,28 +9,43 @@ import (
 )
 
 func parseCompleteCommand(p *parser) ast.CompleteCommand {
+	return *genParseCompleteCommand(p, &ast.CompleteCommand{}, parseList, nil)
+}
+
+type SetLister[T any] interface {
+	SetList(list T)
+	SetSeparator(sep lexer.TokenType)
+}
+
+func genParseCompleteCommand[T SetLister[L], L any](p *parser, ccmd T, hdlr func(*parser, []lexer.TokenType) L, endTokens []lexer.TokenType) T {
 	p.ignoreWhitespaces()
-	endTokens := []lexer.TokenType{lexer.TokEOF, lexer.TokNewline, lexer.TokWhitespace}
+	endTokens = append(endTokens, lexer.TokEOF, lexer.TokNewline, lexer.TokWhitespace)
 
-	completeCmd := ast.CompleteCommand{}
-
-	completeCmd.List = parseList(p, endTokens)
+	ccmd.SetList(hdlr(p, endTokens))
 	if p.curToken.Type.IsOneOf(lexer.TokAmpersand, lexer.TokSemicolon) {
-		completeCmd.Separator = p.prevToken.Type
+		ccmd.SetSeparator(p.curToken.Type)
 		p.nextToken()
 	}
 
 	p.expect(endTokens...)
-	return completeCmd
+	return ccmd
 }
 
 func parseList(p *parser, endTokens []lexer.TokenType) ast.List {
+	return *genParseList(p, &ast.List{}, endTokens)
+}
+
+type SetAndOrer interface {
+	AppendAndOr(andOr ast.AndOr)
+	AppendSeparator(sep lexer.TokenType)
+}
+
+func genParseList[T SetAndOrer](p *parser, list T, endTokens []lexer.TokenType) T {
 	p.ignoreWhitespaces()
 
-	list := ast.List{}
 	for {
 		andOr := parseAndOr(p, endTokens)
-		list.AndOrs = append(list.AndOrs, andOr)
+		list.AppendAndOr(andOr)
 
 		if p.curToken.Type.IsOneOf(lexer.TokSemicolon, lexer.TokAmpersand) {
 			p.nextToken()
@@ -39,7 +54,7 @@ func parseList(p *parser, endTokens []lexer.TokenType) ast.List {
 			if p.curToken.Type.IsOneOf(endTokens...) {
 				return list
 			}
-			list.Separators = append(list.Separators, p.prevToken.Type)
+			list.AppendSeparator(p.prevToken.Type)
 			continue
 		}
 		break
@@ -83,12 +98,19 @@ func parsePipeline(p *parser, endTokens []lexer.TokenType) ast.Pipeline {
 
 	// Parse the commands.
 	for {
-		cmd := parseCommand(p, endTokens)
-		pipeline.Commands = append(pipeline.Commands, cmd)
-
+		switch p.curToken.Type {
+		case lexer.TokIdentifier, lexer.TokSingleQuoteString, lexer.TokDoubleQuoteString, lexer.TokNumber:
+			cmd := parseCommand(p, endTokens)
+			pipeline.Commands = append(pipeline.Commands, cmd)
+		case lexer.TokParenLeft:
+			p.nextToken() // Consume the left parenthesis.
+			cmd := parseSubshell(p)
+			pipeline.Commands = append(pipeline.Commands, cmd)
+		}
 		// If the next token is a pipe, continue parsing.
 		if p.curToken.Type == lexer.TokPipe {
 			p.nextToken()
+			p.ignoreWhitespaces()
 			continue
 		}
 
@@ -98,6 +120,26 @@ func parsePipeline(p *parser, endTokens []lexer.TokenType) ast.Pipeline {
 
 	p.expect(endTokens...)
 	return pipeline
+}
+
+func parseSubshell(p *parser) ast.CompoundCommand {
+	p.ignoreWhitespaces()
+	compCmd := ast.CompoundCommand{
+		Type: "subshell",
+		Body: nil,
+		// TODO: Handle redirects.
+	}
+
+	parseTerm := func(p *parser, endTokens []lexer.TokenType) ast.Term {
+		return *genParseList(p, &ast.Term{}, endTokens)
+	}
+	parseCompoundList := func(p *parser) ast.CompoundList {
+		return *genParseCompleteCommand(p, &ast.CompoundList{}, parseTerm, []lexer.TokenType{lexer.TokParenRight})
+	}
+	compCmd.Body = parseCompoundList(p)
+	p.expect(lexer.TokParenRight)
+	p.nextToken() // Consume the right parenthesis.
+	return compCmd
 }
 
 func parseCommand(p *parser, endToken []lexer.TokenType) ast.SimpleCommand {
@@ -123,9 +165,10 @@ func parseCommand(p *parser, endToken []lexer.TokenType) ast.SimpleCommand {
 		val := p.curToken.Value
 		p.nextToken()
 		for p.curToken.Type != lexer.TokError && !p.curToken.Type.IsOneOf(endToken...) {
-			p.nextToken()
 			val += p.curToken.Value
+			p.nextToken()
 		}
+
 		p.ignoreWhitespaces()
 
 		simpleCmd.Suffix.Words = append(simpleCmd.Suffix.Words, val)
