@@ -19,7 +19,7 @@ type SetLister[T any] interface {
 
 func genParseCompleteCommand[T SetLister[L], L any](p *parser, ccmd T, hdlr func(*parser, []lexer.TokenType) L, endTokens []lexer.TokenType) T {
 	p.ignoreWhitespaces()
-	endTokens = append(endTokens, lexer.TokEOF, lexer.TokNewline, lexer.TokWhitespace)
+	endTokens = append(endTokens, lexer.TokEOF, lexer.TokNewline)
 
 	ccmd.SetList(hdlr(p, endTokens))
 	if p.curToken.Type.IsOneOf(lexer.TokAmpersand, lexer.TokSemicolon) {
@@ -66,7 +66,7 @@ func genParseList[T SetAndOrer](p *parser, list T, endTokens []lexer.TokenType) 
 
 func parseAndOr(p *parser, endTokens []lexer.TokenType) ast.AndOr {
 	p.ignoreWhitespaces()
-	endTokens = append(endTokens, lexer.TokAmpersand, lexer.TokSemicolon)
+	endTokens = append(endTokens, lexer.TokAmpersand, lexer.TokSemicolon, lexer.TokWhitespace)
 
 	andOr := ast.AndOr{}
 	for {

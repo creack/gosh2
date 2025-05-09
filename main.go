@@ -35,7 +35,7 @@ world'''a`
 	input = "echo a`exit 1`;echo bb"
 	input = "echo a`sh -c \"echo oka; echo okb >&2; echo okc\"`b"
 	input = "(echo a`sh -c \"echo oka; echo okb >&2; echo okc\"`b 2>&1) | cat -e"
-	input = "(echo hello | cat)"
+	input = "(echo hello > foo1; cat foo1)"
 
 	cmd := exec.Command("bash", "--posix")
 	cmd.Stdin = strings.NewReader(input)
@@ -51,7 +51,13 @@ world'''a`
 
 	if false {
 		p := parser.New(strings.NewReader(input))
-		pretty.Println(p.NextCompleteCommand())
+		for {
+			cmd := p.NextCompleteCommand()
+			if cmd == nil {
+				break
+			}
+			pretty.Println(cmd)
+		}
 	}
 	return parser.Run(strings.NewReader(input), os.Stdout)
 }
