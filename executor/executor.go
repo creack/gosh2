@@ -22,7 +22,60 @@ func (f *FileWrap) Close() error {
 	return f.File.Close()
 }
 
-func setupCommandIO(aCmd ast.Command, cmd *exec.Cmd) error {
+type CmdWrap struct {
+	*exec.Cmd
+}
+
+func (c *CmdWrap) GetPath() string       { return c.Path }
+func (c *CmdWrap) GetStdin() io.Reader   { return c.Stdin }
+func (c *CmdWrap) GetStdout() io.Writer  { return c.Stdout }
+func (c *CmdWrap) GetStderr() io.Writer  { return c.Stderr }
+func (c *CmdWrap) SetStdin(r io.Reader)  { c.Stdin = r }
+func (c *CmdWrap) SetStdout(w io.Writer) { c.Stdout = w }
+func (c *CmdWrap) SetStderr(w io.Writer) { c.Stderr = w }
+
+func (c *CmdWrap) GetExtraFD(n int) *os.File {
+	if len(c.ExtraFiles) > n-3 {
+		return c.ExtraFiles[n-3]
+	}
+	return nil
+}
+
+func (c *CmdWrap) SetExtraFD(n int, file *os.File) {
+	// Go pass down FDs via the ExtraFiles slice.
+	// Any entry in the slice will start at fd 3 (i.e. after stdin, stdout, stderr).\
+	if len(c.ExtraFiles) <= n-3 {
+		extraFiles := make([]*os.File, n-3+1)
+		copy(extraFiles, c.ExtraFiles)
+		c.ExtraFiles = extraFiles
+	}
+	c.ExtraFiles[n-3] = file
+}
+
+func (c *CmdWrap) GetProcessState() *os.ProcessState { return c.ProcessState }
+
+type CmdIO interface {
+	GetStdin() io.Reader
+	GetStdout() io.Writer
+	GetStderr() io.Writer
+
+	SetStdin(io.Reader)
+	SetStdout(io.Writer)
+	SetStderr(io.Writer)
+
+	GetExtraFD(n int) *os.File
+	SetExtraFD(n int, file *os.File)
+
+	GetProcessState() *os.ProcessState
+
+	GetPath() string
+
+	StdoutPipe() (io.ReadCloser, error)
+	Start() error
+	Wait() error
+}
+
+func setupCommandIO(aCmd ast.Command, cmd CmdIO) error {
 	for _, elem := range aCmd.GetRedirects() {
 		var openFlags int
 		var file *os.File
@@ -66,15 +119,13 @@ func setupCommandIO(aCmd ast.Command, cmd *exec.Cmd) error {
 		} else if elem.ToNumber != nil {
 			switch *elem.ToNumber {
 			case 0:
-				file, _ = cmd.Stdin.(*os.File)
+				file, _ = cmd.GetStdin().(*os.File)
 			case 1:
-				file, _ = cmd.Stdout.(*os.File)
+				file, _ = cmd.GetStdout().(*os.File)
 			case 2:
-				file, _ = cmd.Stderr.(*os.File)
+				file, _ = cmd.GetStderr().(*os.File)
 			default:
-				if len(cmd.ExtraFiles) > *elem.ToNumber-3 {
-					file = cmd.ExtraFiles[*elem.ToNumber-3]
-				}
+				file = cmd.GetExtraFD(*elem.ToNumber)
 			}
 			if file == nil {
 				return fmt.Errorf("bad file descriptior %d\n", *elem.ToNumber)
@@ -85,37 +136,34 @@ func setupCommandIO(aCmd ast.Command, cmd *exec.Cmd) error {
 
 		switch elem.Number {
 		case 0:
-			cmd.Stdin = file
+			cmd.SetStdin(file)
 		case 1:
-			cmd.Stdout = file
+			cmd.SetStdout(file)
 			// Case for `>& filename`, redirect both stdout and stderr to the file.
 			if elem.Op == lexer.TokRedirectGreatAnd && elem.Filename != "" {
-				cmd.Stderr = file
+				cmd.SetStderr(file)
 			}
 		case 2:
-			cmd.Stderr = file
+			cmd.SetStderr(file)
 		default:
-			// Go pass down FDs via the ExtraFiles slice.
-			// Any entry in the slice will start at fd 3 (i.e. after stdin, stdout, stderr).
-			if len(cmd.ExtraFiles) <= elem.Number-3 {
-				extraFiles := make([]*os.File, elem.Number-3+1)
-				copy(extraFiles, cmd.ExtraFiles)
-				cmd.ExtraFiles = extraFiles
-			}
-			cmd.ExtraFiles[elem.Number-3] = file
+			cmd.SetExtraFD(elem.Number, file)
 		}
 	}
 	return nil
 }
 
 func executePipeline(pipeline ast.Pipeline, stdout io.Writer) (int, error) {
-	var cmds []*exec.Cmd
+	var cmds []CmdIO
 	var simpleCmds []ast.Command
 	// Create exec.Cmd for each command in the pipeline.
 	for _, pipeCmd := range pipeline.Commands {
 		switch c := pipeCmd.(type) {
 		case ast.SimpleCommand:
 			simpleCmds = append(simpleCmds, c)
+			if c.Name == "echo" {
+				cmds = append(cmds, newBuiltinEcho(c))
+				continue
+			}
 			cmd := exec.Command(c.Name, c.Suffix.Words...)
 			if c.Name == "exit" {
 				if len(c.Suffix.Words) == 0 {
@@ -130,7 +178,7 @@ func executePipeline(pipeline ast.Pipeline, stdout io.Writer) (int, error) {
 				return -1, nil
 			}
 			cmd.Env = append(os.Environ(), c.Prefix.Assignments...)
-			cmds = append(cmds, cmd)
+			cmds = append(cmds, &CmdWrap{cmd})
 		case ast.CompoundCommand:
 			switch c.Type {
 			case "subshell":
@@ -138,8 +186,9 @@ func executePipeline(pipeline ast.Pipeline, stdout io.Writer) (int, error) {
 				cmd := exec.Command(os.Args[0], "-sub")
 				cmd.Env = os.Environ()
 				cmd.Stdin = strings.NewReader(c.Body.Dump())
-				cmds = append(cmds, cmd)
+				cmds = append(cmds, &CmdWrap{cmd})
 			default:
+				return -1, fmt.Errorf("unsupported compound command type %q", c.Type)
 			}
 		default:
 			return -1, fmt.Errorf("unsupported command type %T", c)
@@ -148,29 +197,31 @@ func executePipeline(pipeline ast.Pipeline, stdout io.Writer) (int, error) {
 
 	// Set stdin/stdout/stderr for the last command.
 	lastCmd := cmds[len(cmds)-1]
-	if lastCmd.Stdin == nil {
-		lastCmd.Stdin = os.Stdin
+	if lastCmd.GetStdin() == nil {
+		lastCmd.SetStdin(os.Stdin)
 	}
-	lastCmd.Stdout = stdout
-	lastCmd.Stderr = os.Stderr
+	lastCmd.SetStdout(stdout)
+	lastCmd.SetStderr(os.Stderr)
+
 	// Handle io redirections for the last command.
 	if err := setupCommandIO(simpleCmds[len(simpleCmds)-1], lastCmd); err != nil {
-		return -1, fmt.Errorf("setup %q: %w", lastCmd.Path, err)
+		return -1, fmt.Errorf("setup %q: %w", lastCmd.GetPath(), err)
 	}
 
 	// For every other command in the pipeline, hook stdin to the previous command's stdout.
 	for i := len(cmds) - 1; i > 0; i-- {
-		cmds[i].Stdin, _ = cmds[i-1].StdoutPipe()
-		cmds[i-1].Stderr = os.Stderr
+		stdin, _ := cmds[i-1].StdoutPipe()
+		cmds[i].SetStdin(stdin)
+		cmds[i-1].SetStderr(os.Stderr)
 		if err := setupCommandIO(simpleCmds[i-1], cmds[i-1]); err != nil {
-			return -1, fmt.Errorf("setup %q: %w", cmds[i-1].Path, err)
+			return -1, fmt.Errorf("setup %q: %w", cmds[i-1].GetPath(), err)
 		}
 	}
 
 	// Start all commands in the pipeline.
 	for _, cmd := range cmds {
 		if err := cmd.Start(); err != nil {
-			return -1, fmt.Errorf("start %q: %w", cmd.Path, err)
+			return -1, fmt.Errorf("start %q: %w", cmd.GetPath(), err)
 		}
 	}
 	// Wait on all commands in the pipeline. Keep track of the last exit code.
@@ -178,11 +229,11 @@ func executePipeline(pipeline ast.Pipeline, stdout io.Writer) (int, error) {
 	const optPipefail = false // TODO: Actually implement pipefail.
 	for _, cmd := range cmds {
 		err := cmd.Wait()
-		if cmd.ProcessState != nil {
-			lastExitCode = cmd.ProcessState.ExitCode()
+		if ps := cmd.GetProcessState(); ps != nil {
+			lastExitCode = ps.ExitCode()
 		}
 		if err != nil && optPipefail {
-			return lastExitCode, fmt.Errorf("wait %q: %w", cmd.Path, err)
+			return lastExitCode, fmt.Errorf("wait %q: %w", cmd.GetPath(), err)
 		}
 	}
 

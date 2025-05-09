@@ -75,15 +75,15 @@ var tokenTypeStrings = map[TokenType]string{
 	TokNumber:            "NUMBER",
 	TokVar:               "VAR",
 
-	TokRedirectLess:           "REDIRECT_IN",         // '<'.
-	TokRedirectGreat:          "REDIRECT_OUT",        // '>'.
-	TokRedirectDoubleLess:     "REDIRECT_DOUBLE_IN",  // DLESS (<<).
-	TokRedirectDoubleGreat:    "REDIRECT_DOUBLE_OUT", // DGREAT (>>).
-	TokRedirectLessAnd:        "REDIRECT_LESSAND",    // LESSAND (<&).
-	TokRedirectGreatAnd:       "REDIRECT_GREATAND",   // GREATAND (>&).
-	TokRedirectLessGreat:      "REDIRECT_LESSGREAT",  // LESSGREAT (<>).
-	TokRedirectDoubleLessDash: "REDIRECT_DLESSDASH",  // DLESSDASH (<<-).
-	TokRedirectClobber:        "REDIRECT_CLOBBER",    // CLOBBER (>|).
+	TokRedirectLess:           "<",   // '<'.
+	TokRedirectGreat:          ">",   // '>'.
+	TokRedirectDoubleLess:     "<<",  // DLESS (<<).
+	TokRedirectDoubleGreat:    ">>",  // DGREAT (>>).
+	TokRedirectLessAnd:        "<&",  // LESSAND (<&).
+	TokRedirectGreatAnd:       ">&",  // GREATAND (>&).
+	TokRedirectLessGreat:      "<>",  // LESSGREAT (<>).
+	TokRedirectDoubleLessDash: "<<-", // DLESSDASH (<<-).
+	TokRedirectClobber:        ">|",  // CLOBBER (>|).
 
 	TokEquals:     "EQUALS",
 	TokBang:       "BANG",
