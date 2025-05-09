@@ -9,33 +9,34 @@ import (
 )
 
 func parseCompleteCommand(p *parser) ast.CompleteCommand {
-	p.ignoreNewlines()
+	p.ignoreWhitespaces()
+	endTokens := []lexer.TokenType{lexer.TokEOF, lexer.TokNewline, lexer.TokWhitespace}
 
 	completeCmd := ast.CompleteCommand{}
 
-	completeCmd.List = parseList(p)
-	if p.prevToken.Type == lexer.TokAmpersand || p.prevToken.Type == lexer.TokSemicolon {
+	completeCmd.List = parseList(p, endTokens)
+	if p.curToken.Type.IsOneOf(lexer.TokAmpersand, lexer.TokSemicolon) {
 		completeCmd.Separator = p.prevToken.Type
 		p.nextToken()
 	}
 
-	p.expect(lexer.TokEOF, lexer.TokNewline)
+	p.expect(endTokens...)
 	return completeCmd
 }
 
-func parseList(p *parser) ast.List {
-	p.ignoreNewlines()
+func parseList(p *parser, endTokens []lexer.TokenType) ast.List {
+	p.ignoreWhitespaces()
 
 	list := ast.List{}
 	for {
-		andOr := parseAndOr(p)
+		andOr := parseAndOr(p, endTokens)
 		list.AndOrs = append(list.AndOrs, andOr)
 
-		if p.curToken.Type == lexer.TokSemicolon || p.curToken.Type == lexer.TokAmpersand {
+		if p.curToken.Type.IsOneOf(lexer.TokSemicolon, lexer.TokAmpersand) {
 			p.nextToken()
 			// A list cannot end with a separator, if there is one, it must be followed by a and_or.
 			// If it is not, it is the end of the list.
-			if p.curToken.Type == lexer.TokEOF || p.curToken.Type == lexer.TokNewline {
+			if p.curToken.Type.IsOneOf(endTokens...) {
 				return list
 			}
 			list.Separators = append(list.Separators, p.prevToken.Type)
@@ -44,18 +45,19 @@ func parseList(p *parser) ast.List {
 		break
 	}
 
-	p.expect(lexer.TokEOF, lexer.TokNewline)
+	p.expect(endTokens...)
 	return list
 }
 
-func parseAndOr(p *parser) ast.AndOr {
-	p.ignoreNewlines()
+func parseAndOr(p *parser, endTokens []lexer.TokenType) ast.AndOr {
+	p.ignoreWhitespaces()
+	endTokens = append(endTokens, lexer.TokAmpersand, lexer.TokSemicolon)
 
 	andOr := ast.AndOr{}
 	for {
-		pipeline := parsePipeline(p)
+		pipeline := parsePipeline(p, endTokens)
 		andOr.Pipelines = append(andOr.Pipelines, pipeline)
-		if p.curToken.Type == lexer.TokLogicalAnd || p.curToken.Type == lexer.TokLogicalOr {
+		if p.curToken.Type.IsOneOf(lexer.TokLogicalAnd, lexer.TokLogicalOr) {
 			andOr.Operators = append(andOr.Operators, p.curToken.Type)
 			p.nextToken()
 			continue
@@ -63,12 +65,13 @@ func parseAndOr(p *parser) ast.AndOr {
 		break
 	}
 
-	p.expect(lexer.TokEOF, lexer.TokNewline, lexer.TokAmpersand, lexer.TokSemicolon)
+	p.expect(endTokens...)
 	return andOr
 }
 
-func parsePipeline(p *parser) ast.Pipeline {
-	p.ignoreNewlines()
+func parsePipeline(p *parser, endTokens []lexer.TokenType) ast.Pipeline {
+	p.ignoreWhitespaces()
+	endTokens = append(endTokens, lexer.TokLogicalAnd, lexer.TokLogicalOr)
 
 	pipeline := ast.Pipeline{}
 
@@ -80,7 +83,7 @@ func parsePipeline(p *parser) ast.Pipeline {
 
 	// Parse the commands.
 	for {
-		cmd := parseCommand(p)
+		cmd := parseCommand(p, endTokens)
 		pipeline.Commands = append(pipeline.Commands, cmd)
 
 		// If the next token is a pipe, continue parsing.
@@ -93,12 +96,13 @@ func parsePipeline(p *parser) ast.Pipeline {
 		break
 	}
 
-	p.expect(lexer.TokEOF, lexer.TokNewline, lexer.TokAmpersand, lexer.TokSemicolon, lexer.TokLogicalAnd, lexer.TokLogicalOr)
+	p.expect(endTokens...)
 	return pipeline
 }
 
-func parseCommand(p *parser) ast.SimpleCommand {
-	p.ignoreNewlines()
+func parseCommand(p *parser, endToken []lexer.TokenType) ast.SimpleCommand {
+	p.ignoreWhitespaces()
+	endToken = append(endToken, lexer.TokPipe)
 
 	simpleCmd := ast.SimpleCommand{}
 
@@ -106,23 +110,39 @@ func parseCommand(p *parser) ast.SimpleCommand {
 	// TODO: Support variables.
 	simpleCmd.Prefix.Redirects = parseCommandRedirect(p)
 
-	simpleCmd.Name = p.expect(lexer.TokIdentifier).Value
+	// Handle the command name.
+	// TODO: Add support for `e"c"h'o' hello world`.
+	simpleCmd.Name = p.expectIdentifierStr().Value
 	p.nextToken()
-	for p.curToken.Type == lexer.TokIdentifier || p.curToken.Type == lexer.TokString {
-		simpleCmd.Suffix.Words = append(simpleCmd.Suffix.Words, p.curToken.Value)
+
+	// Expect whitespace or end token.
+	p.expect(endToken...)
+	p.ignoreWhitespaces()
+
+	// As long as we have a word, we can add it to the suffix.
+	for p.curToken.Type.IsOneOf(lexer.TokIdentifier, lexer.TokSingleQuoteString, lexer.TokDoubleQuoteString, lexer.TokNumber) {
+		val := p.curToken.Value
 		p.nextToken()
+		for p.curToken.Type != lexer.TokError && !p.curToken.Type.IsOneOf(endToken...) {
+			p.nextToken()
+			val += p.curToken.Value
+		}
+		p.ignoreWhitespaces()
+
+		simpleCmd.Suffix.Words = append(simpleCmd.Suffix.Words, val)
 	}
 
 	// Handle suffixes.
 	simpleCmd.Suffix.Redirects = parseCommandRedirect(p)
 
-	p.expect(lexer.TokEOF, lexer.TokNewline, lexer.TokAmpersand, lexer.TokSemicolon, lexer.TokPipe, lexer.TokLogicalAnd, lexer.TokLogicalOr)
+	p.expect(endToken...)
 	return simpleCmd
 }
 
 func parseCommandRedirect(p *parser) []ast.IORedirect {
 	var redirects []ast.IORedirect
 	for {
+		p.ignoreWhitespaces()
 		switch p.curToken.Type {
 		case lexer.TokRedirectGreatAnd, lexer.TokRedirectLessAnd:
 			// Parse the fd number.
@@ -132,12 +152,13 @@ func parseCommandRedirect(p *parser) []ast.IORedirect {
 			}
 			op := p.curToken.Type
 			p.nextToken()
+			p.ignoreWhitespaces()
 			red := ast.IORedirect{
 				Number: fd,
 				Op:     op,
 			}
 
-			target := p.expect(lexer.TokString, lexer.TokIdentifier, lexer.TokNumber).Value
+			target := p.expectIdentifierStr().Value
 			if p.curToken.Type == lexer.TokNumber {
 				n, err := strconv.Atoi(target)
 				if err != nil {
@@ -162,10 +183,11 @@ func parseCommandRedirect(p *parser) []ast.IORedirect {
 			}
 			op := p.curToken.Type
 			p.nextToken()
+			p.ignoreWhitespaces()
 			red := ast.IORedirect{
 				Number:   fd,
 				Op:       op,
-				Filename: p.expect(lexer.TokString, lexer.TokIdentifier).Value,
+				Filename: p.expectIdentifierStr().Value,
 			}
 			p.nextToken()
 			redirects = append(redirects, red)
@@ -177,14 +199,16 @@ func parseCommandRedirect(p *parser) []ast.IORedirect {
 				panic(fmt.Errorf("invalid fd number: %q", p.curToken.Value))
 			}
 			p.nextToken() // Consume the fd number.
-			hereEnd := p.expect(lexer.TokString, lexer.TokIdentifier).Value
-			p.nextToken()              // Consume the hereEnd token.
+			p.ignoreWhitespaces()
+			hereEnd := p.expectIdentifierStr().Value
+			p.nextToken() // Consume the hereEnd token.
+			p.ignoreWhitespaces()
 			p.expect(lexer.TokNewline) // We exepect a newline token here.
 			p.nextToken()              // Consume the newline token.
 
 			// Consume all tokens until we reach the hereEnd token.
 			hereDoc := ""
-			for p.curToken.Type != lexer.TokEOF && p.curToken.Type != lexer.TokError && p.curToken.Value != hereEnd {
+			for !p.curToken.Type.IsOneOf(lexer.TokEOF, lexer.TokError) && p.curToken.Value != hereEnd {
 				hereDoc += p.curToken.Value
 				p.nextToken()
 			}

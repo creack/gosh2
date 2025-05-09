@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"regexp"
 	"strings"
 	"unicode/utf8"
 )
@@ -131,8 +132,30 @@ func (l *Lexer) thisToken(tt TokenType) Token {
 	}
 	l.start = l.pos
 	l.startLine = l.line
+
+	switch tt {
+	case TokIdentifier, TokSingleQuoteString, TokDoubleQuoteString:
+	default:
+		return t
+	}
+
+	// Unless we are in singlequote string, we strip backslash newline.
+	if t.Type != TokSingleQuoteString {
+		t.Value = strings.ReplaceAll(t.Value, "\\\n", "")
+	}
+	// In doublequotes, only escape \\.
+	if t.Type == TokDoubleQuoteString {
+		t.Value = strings.ReplaceAll(t.Value, "\\\\", "\\")
+	}
+	// In identifiers, escape everything.
+	if t.Type == TokIdentifier {
+		t.Value = escapeRe.ReplaceAllString(t.Value, "$1")
+	}
+
 	return t
 }
+
+var escapeRe = regexp.MustCompile(`\\(.)`)
 
 func (l *Lexer) emitToken(t Token) stateFn {
 	l.curToken = t
@@ -143,6 +166,7 @@ func (l *Lexer) emit(tt TokenType) stateFn {
 	return l.emitToken(l.thisToken(tt))
 }
 
+// Ignore everything from start to pos.
 func (l *Lexer) ignore() {
 	l.line += strings.Count(l.input[l.start:l.pos], "\n")
 	l.start = l.pos

@@ -108,8 +108,8 @@ func TestLexerQuotedStrings(t *testing.T) {
 	input := `echo "This is a quoted string" 'And so is this'`
 	expectedTokens := []Token{
 		{Type: TokIdentifier, Value: "echo"},
-		{Type: TokString, Value: "This is a quoted string"},
-		{Type: TokString, Value: "And so is this"},
+		{Type: TokSingleQuoteString, Value: "This is a quoted string"},
+		{Type: TokSingleQuoteString, Value: "And so is this"},
 		{Type: TokEOF, Value: ""},
 	}
 
@@ -147,11 +147,11 @@ func TestLexerComplexCommand(t *testing.T) {
 		{Type: TokIdentifier, Value: "find"},
 		{Type: TokVar, Value: "$HOME"},
 		{Type: TokIdentifier, Value: "-name"},
-		{Type: TokString, Value: "*.go"},
+		{Type: TokSingleQuoteString, Value: "*.go"},
 		{Type: TokPipe, Value: "|"},
 		{Type: TokIdentifier, Value: "xargs"},
 		{Type: TokIdentifier, Value: "grep"},
-		{Type: TokString, Value: "func main"},
+		{Type: TokSingleQuoteString, Value: "func main"},
 		{Type: TokRedirectGreat, Value: "1"},
 		{Type: TokIdentifier, Value: "results.txt"},
 		{Type: TokRedirectGreat, Value: "2"},
@@ -175,7 +175,7 @@ func TestLexerBraces(t *testing.T) {
 		{Type: TokIdentifier, Value: "then"},
 		{Type: TokBraceLeft, Value: "{"},
 		{Type: TokIdentifier, Value: "echo"},
-		{Type: TokString, Value: "File exists"},
+		{Type: TokSingleQuoteString, Value: "File exists"},
 		{Type: TokSemicolon, Value: ";"},
 		{Type: TokBraceRight, Value: "}"},
 		{Type: TokEOF, Value: ""},
@@ -194,7 +194,7 @@ func TestLexerBracketsForConditions(t *testing.T) {
 		{Type: TokBracketRight, Value: "]"},
 		{Type: TokLogicalAnd, Value: "&&"},
 		{Type: TokIdentifier, Value: "echo"},
-		{Type: TokString, Value: "Count is 10"},
+		{Type: TokSingleQuoteString, Value: "Count is 10"},
 		{Type: TokEOF, Value: ""},
 	}
 
@@ -206,7 +206,7 @@ func TestLexerVariableDeclaration(t *testing.T) {
 	expectedTokens := []Token{
 		{Type: TokIdentifier, Value: "name"},
 		{Type: TokEquals, Value: "="},
-		{Type: TokString, Value: "John Doe"},
+		{Type: TokSingleQuoteString, Value: "John Doe"},
 		{Type: TokNewline, Value: "\n"},
 		{Type: TokIdentifier, Value: "echo"},
 		{Type: TokVar, Value: "$name"},
@@ -257,7 +257,7 @@ func TestLexerArrayDeclaration(t *testing.T) {
 		{Type: TokParenLeft, Value: "("},
 		{Type: TokIdentifier, Value: "file1.txt"},
 		{Type: TokIdentifier, Value: "file2.txt"},
-		{Type: TokString, Value: "file with spaces.txt"},
+		{Type: TokSingleQuoteString, Value: "file with spaces.txt"},
 		{Type: TokParenRight, Value: ")"},
 		{Type: TokEOF, Value: ""},
 	}
@@ -334,7 +334,7 @@ func TestLexerErrorCases(t *testing.T) {
 			input: `echo "String with \"escaped quotes\""`,
 			expected: []Token{
 				{Type: TokIdentifier, Value: "echo"},
-				{Type: TokString, Value: "String with \\\"escaped quotes\\\""},
+				{Type: TokSingleQuoteString, Value: "String with \\\"escaped quotes\\\""},
 				{Type: TokEOF, Value: ""},
 			},
 		},
@@ -343,7 +343,7 @@ func TestLexerErrorCases(t *testing.T) {
 			input: `echo "outer 'inner' quotes"`,
 			expected: []Token{
 				{Type: TokIdentifier, Value: "echo"},
-				{Type: TokString, Value: "outer 'inner' quotes"},
+				{Type: TokSingleQuoteString, Value: "outer 'inner' quotes"},
 				{Type: TokEOF, Value: ""},
 			},
 		},
@@ -352,8 +352,8 @@ func TestLexerErrorCases(t *testing.T) {
 			input: `echo "" ''`,
 			expected: []Token{
 				{Type: TokIdentifier, Value: "echo"},
-				{Type: TokString, Value: ""},
-				{Type: TokString, Value: ""},
+				{Type: TokSingleQuoteString, Value: ""},
+				{Type: TokSingleQuoteString, Value: ""},
 				{Type: TokEOF, Value: ""},
 			},
 		},

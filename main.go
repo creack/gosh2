@@ -183,7 +183,7 @@ func evaluate(completeCmd ast.CompleteCommand) (int, error) {
 }
 
 func test() (int, error) {
-	input := "rm -f foo bar; ls -l > bar | foo.sh | wc -c | cat -e > foo; echo --; cat bar; echo --; cat foo"
+	input := ""
 	input = "echo hello > foo; echo world >> foo; ls /dev/fd 7<foo; cat /dev/fd/7 7<foo"
 	input = "foo.sh 8> ret; echo why && echo ok1 || echo ko2 && echo ok2; cat ret; echo -1-"
 	input = "echo hello > foo; foo.sh <> foo; echo --; cat foo"
@@ -191,6 +191,24 @@ func test() (int, error) {
 	// input = "cat /dev/fd/9 9<&7 7<foo"
 	// input = "echo hello 8>bar >&8; cat bar"
 	input = "echo ___; cat -e<<EOF\nhello\nworld\nEOF\necho ^^^^"
+	input = `myecho "\a\b\\\a" '\a\b\\\a' \a\b\\\a`
+	input = `echo hello\"world`
+	input = "echo --; cat foo"
+	input = "rm -f foo bar; ls -l > bar | foo.sh | wc -c | cat -e > foo; echo --; cat bar; echo --; cat foo"
+	input = `echo 'hello\
+world'''a`
+
+	cmd := exec.Command("bash", "--posix")
+	cmd.Stdin = strings.NewReader(input)
+	cmd.Stdout = os.Stdout
+	cmd.Stderr = os.Stderr
+	fmt.Printf("------POSIX-----\n")
+	if err := cmd.Run(); err != nil {
+		log.Printf("sh error: %s.", err)
+	}
+	fmt.Printf("------!POSIX-----\n")
+	fmt.Printf("------GOSH-------\n")
+	defer fmt.Printf("------!gosh-----\n")
 
 	p := parser.New(strings.NewReader(input))
 	lastExitCode := -1

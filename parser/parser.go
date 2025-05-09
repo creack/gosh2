@@ -3,7 +3,6 @@ package parser
 import (
 	"fmt"
 	"io"
-	"slices"
 
 	"go.creack.net/gosh2/ast"
 	"go.creack.net/gosh2/lexer"
@@ -48,7 +47,7 @@ func Parse(lex *lexer.Lexer) ast.Program {
 
 func (p *parser) NextCompleteCommand() *ast.CompleteCommand {
 	p.nextToken()
-	p.ignoreNewlines()
+	p.ignoreWhitespaces()
 	if p.curToken.Type == lexer.TokEOF || p.curToken.Type == lexer.TokError {
 		return nil
 	}
@@ -64,15 +63,20 @@ func (p *parser) nextToken() lexer.Token {
 
 // expect checks if the current token is of the expected type.
 func (p *parser) expect(kind ...lexer.TokenType) lexer.Token {
-	if slices.Contains(kind, p.curToken.Type) {
-		curToken := p.curToken
-		return curToken
+	if p.curToken.Type.IsOneOf(kind...) {
+		return p.curToken
 	}
 	panic(fmt.Errorf("expected token %v but got %s (%s)", kind, p.curToken.Type, p.curToken))
 }
 
-func (p *parser) ignoreNewlines() {
-	for p.curToken.Type == lexer.TokNewline {
+// expectIdentifierStr checks if the current token is an identifier at large,
+// i.e., it can be a raw identifier, a single/double quoted string or a number.
+func (p *parser) expectIdentifierStr() lexer.Token {
+	return p.expect(lexer.TokIdentifier, lexer.TokSingleQuoteString, lexer.TokDoubleQuoteString, lexer.TokNumber)
+}
+
+func (p *parser) ignoreWhitespaces() {
+	for p.curToken.Type.IsOneOf(lexer.TokNewline, lexer.TokWhitespace) {
 		p.nextToken()
 	}
 }
