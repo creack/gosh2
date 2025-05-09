@@ -6,7 +6,6 @@ import (
 	"log"
 	"os"
 	"os/exec"
-	"strconv"
 	"strings"
 
 	"go.creack.net/gosh2/ast"
@@ -160,23 +159,12 @@ func executePipeline(pipeline ast.Pipeline, stdout io.Writer) (int, error) {
 		switch c := pipeCmd.(type) {
 		case ast.SimpleCommand:
 			simpleCmds = append(simpleCmds, c)
-			if c.Name == "echo" {
-				cmds = append(cmds, newBuiltinEcho(c))
+			builtin := handleBuiltinCmd(c)
+			if builtin != nil {
+				cmds = append(cmds, builtin)
 				continue
 			}
 			cmd := exec.Command(c.Name, c.Suffix.Words...)
-			if c.Name == "exit" {
-				if len(c.Suffix.Words) == 0 {
-					os.Exit(0)
-					return -1, nil
-				}
-				n, err := strconv.Atoi(c.Suffix.Words[0])
-				if err != nil {
-					return -1, fmt.Errorf("invalid exit code %q: %w", c.Suffix.Words[0], err)
-				}
-				os.Exit(n)
-				return -1, nil
-			}
 			cmd.Env = append(os.Environ(), c.Prefix.Assignments...)
 			cmds = append(cmds, &CmdWrap{cmd})
 		case ast.CompoundCommand:

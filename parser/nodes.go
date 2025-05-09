@@ -126,8 +126,6 @@ func parseSubshell(p *parser) ast.CompoundCommand {
 	p.ignoreWhitespaces()
 	compCmd := ast.CompoundCommand{
 		Type: "subshell",
-		Body: nil,
-		// TODO: Handle redirects.
 	}
 
 	parseTerm := func(p *parser, endTokens []lexer.TokenType) ast.Term {
@@ -139,6 +137,10 @@ func parseSubshell(p *parser) ast.CompoundCommand {
 	compCmd.Body = parseCompoundList(p)
 	p.expect(lexer.TokParenRight)
 	p.nextToken() // Consume the right parenthesis.
+	p.ignoreWhitespaces()
+
+	compCmd.Redirections = parseCommandRedirect(p)
+
 	return compCmd
 }
 
