@@ -13,7 +13,8 @@ type parser struct {
 
 	prevToken lexer.Token
 	curToken  lexer.Token
-	// peekToken lexer.Token
+
+	peekToken *lexer.Token // Buffer.
 }
 
 type Parser interface {
@@ -57,11 +58,25 @@ func (p *parser) NextCompleteCommand() *ast.CompleteCommand {
 
 func (p *parser) nextToken() lexer.Token {
 	p.prevToken = p.curToken
+	if p.peekToken != nil {
+		p.curToken = *p.peekToken
+		p.peekToken = nil
+		return p.curToken
+	}
 	p.curToken = p.lex.NextToken()
 	if p.curToken.Type == lexer.TokIdentifier {
 		p.curToken.Value = evalGlobing(p.curToken.Value)
 	}
 	return p.curToken
+}
+
+func (p *parser) peek() lexer.Token {
+	if p.peekToken != nil {
+		return *p.peekToken
+	}
+	tok := p.lex.NextToken()
+	p.peekToken = &tok
+	return tok
 }
 
 // expect checks if the current token is of the expected type.

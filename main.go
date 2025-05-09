@@ -110,19 +110,26 @@ func setupCommandIO(simpleCmd ast.SimpleCommand, cmd *exec.Cmd) error {
 func executePipeline(pipeline ast.Pipeline) (int, error) {
 	var cmds []*exec.Cmd
 	var simpleCmds []ast.SimpleCommand
+	// Create exec.Cmd for each command in the pipeline.
 	for _, pipeCmd := range pipeline.Commands {
 		simpleCmd, _ := pipeCmd.(ast.SimpleCommand)
 		simpleCmds = append(simpleCmds, simpleCmd)
-		cmds = append(cmds, exec.Command(simpleCmd.Name, simpleCmd.Suffix.Words...))
+		cmd := exec.Command(simpleCmd.Name, simpleCmd.Suffix.Words...)
+		cmd.Env = append(os.Environ(), simpleCmd.Prefix.Assignments...)
+		cmds = append(cmds, cmd)
 	}
 
+	// Set stdin/stdout/stderr for the last command.
 	lastCmd := cmds[len(cmds)-1]
+	lastCmd.Stdin = os.Stdin
 	lastCmd.Stdout = os.Stdout
 	lastCmd.Stderr = os.Stderr
+	// handle io redirections for the last command.
 	if err := setupCommandIO(simpleCmds[len(simpleCmds)-1], lastCmd); err != nil {
 		return -1, fmt.Errorf("setup %q: %w", lastCmd.Path, err)
 	}
 
+	// For every other command in the pipeline, hook stdin to the previous command's stdout.
 	for i := len(cmds) - 1; i > 0; i-- {
 		cmds[i].Stdin, _ = cmds[i-1].StdoutPipe()
 		cmds[i-1].Stderr = os.Stderr
@@ -131,13 +138,15 @@ func executePipeline(pipeline ast.Pipeline) (int, error) {
 		}
 	}
 
+	// Start all commands in the pipeline.
 	for _, cmd := range cmds {
 		if err := cmd.Start(); err != nil {
 			return -1, fmt.Errorf("start %q: %w", cmd.Path, err)
 		}
 	}
+	// Wait on all commands in the pipeline. Keep track of the last exit code.
 	lastExitCode := -1
-	const optPipefail = false
+	const optPipefail = false // TODO: Actually implement pipefail.
 	for _, cmd := range cmds {
 		err := cmd.Wait()
 		if cmd.ProcessState != nil {
@@ -198,6 +207,8 @@ func test() (int, error) {
 	input = `echo 'hello\
 world'''a`
 	input = `echo [?b]`
+	input = `fooa=bar >bar foo=foo sh -c 'echo $foo'; cat -e bar`
+
 	cmd := exec.Command("bash", "--posix")
 	cmd.Stdin = strings.NewReader(input)
 	cmd.Stdout = os.Stdout
