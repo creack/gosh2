@@ -36,6 +36,11 @@ world'''a`
 	input = "echo a`sh -c \"echo oka; echo okb >&2; echo okc\"`b"
 	input = "(echo a`sh -c \"echo oka; echo okb >&2; echo okc\"`b 2>&1) | cat -e"
 	input = "(echo hello > foo1; cat foo1)"
+	input = "echo hello 9> foo >&9;cat foo"
+	input = "foooobarrrr=bar1 env > foo; cat foo"
+	input = "cd /tmp; pwd; (cd /Volumes; pwd); pwd"
+	input = "(echo hello) > foo; cat foo"
+	input = "echo hello; cat foo"
 
 	cmd := exec.Command("bash", "--posix")
 	cmd.Stdin = strings.NewReader(input)
