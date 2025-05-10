@@ -1,6 +1,6 @@
 module go.creack.net/gosh2
 
-go 1.24.2
+go 1.24.3
 
 require (
 	github.com/kr/pretty v0.3.1
