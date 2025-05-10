@@ -20,6 +20,8 @@ type builtinCmd struct {
 	stderr io.Writer
 
 	extraFiles []*os.File
+
+	exitCode int
 }
 
 func newBuiltinCmd(cmd ast.SimpleCommand) *builtinCmd {
@@ -51,7 +53,13 @@ func (c *builtinCmd) SetExtraFD(n int, file *os.File) {
 	c.extraFiles[n-3] = file
 }
 
-func (c *builtinCmd) GetProcessState() *os.ProcessState { return nil }
+func (c *builtinCmd) ExitCode() int {
+	return c.exitCode
+}
+
+func (c *builtinCmd) GetProcessState() Exiter {
+	return c
+}
 
 func (c *builtinCmd) GetPath() string { return c.simpleCmd.Name }
 

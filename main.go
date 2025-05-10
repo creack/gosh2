@@ -36,11 +36,12 @@ world'''a`
 	input = "echo a`sh -c \"echo oka; echo okb >&2; echo okc\"`b"
 	input = "(echo a`sh -c \"echo oka; echo okb >&2; echo okc\"`b 2>&1) | cat -e"
 	input = "(echo hello > foo1; cat foo1)"
-	input = "echo hello 9> foo >&9;cat foo"
+	input = "echo hellor 9> foo >&9;cat foo"
 	input = "foooobarrrr=bar1 env > foo; cat foo"
 	input = "cd /tmp; pwd; (cd /Volumes; pwd); pwd"
 	input = "(echo hello) > foo; cat foo"
 	input = "echo hello; cat foo"
+	//input = "echo hello && cat foo"
 
 	cmd := exec.Command("bash", "--posix")
 	cmd.Stdin = strings.NewReader(input)
@@ -54,7 +55,7 @@ world'''a`
 	fmt.Printf("------GOSH-------\n")
 	defer fmt.Printf("------!gosh-----\n")
 
-	if false {
+	if true {
 		p := parser.New(strings.NewReader(input))
 		for {
 			cmd := p.NextCompleteCommand()
@@ -64,12 +65,12 @@ world'''a`
 			pretty.Println(cmd)
 		}
 	}
-	return parser.Run(strings.NewReader(input), os.Stdout)
+	return parser.Run(strings.NewReader(input), os.Stdin, os.Stdout, os.Stderr)
 }
 
 func main() {
 	if len(os.Args) > 1 && os.Args[1] == "-sub" {
-		exitCode, err := parser.Run(os.Stdin, os.Stdout)
+		exitCode, err := parser.Run(os.Stdin, nil, os.Stdout, os.Stderr)
 		if exitCode == 0 && err != nil {
 			log.Fatalf("Sub fail: %s.", err)
 		}

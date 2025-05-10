@@ -49,7 +49,7 @@ func Parse(lex *lexer.Lexer) ast.Program {
 	return ast.Program{Commands: cmds}
 }
 
-func Run(input io.Reader, output io.Writer) (int, error) {
+func Run(input, stdin io.Reader, stdout, stderr io.Writer) (int, error) {
 	p := New(input)
 
 	var lastExitCode int
@@ -58,7 +58,7 @@ func Run(input io.Reader, output io.Writer) (int, error) {
 		if cmd == nil {
 			break
 		}
-		exitCode, err := executor.Evaluate(*cmd, output)
+		exitCode, err := executor.Evaluate(*cmd, stdin, stdout, stderr)
 		if err != nil {
 			return exitCode, err
 		}
