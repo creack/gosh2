@@ -51,7 +51,11 @@ func (c *CmdWrap) SetExtraFD(n int, file *os.File) {
 	c.ExtraFiles[n-3] = file
 }
 
-func (c *CmdWrap) GetProcessState() *os.ProcessState { return c.ProcessState }
+func (c *CmdWrap) GetProcessState() Exiter { return c.ProcessState }
+
+type Exiter interface {
+	ExitCode() int
+}
 
 type CmdIO interface {
 	GetStdin() io.Reader
@@ -65,7 +69,7 @@ type CmdIO interface {
 	GetExtraFD(n int) *os.File
 	SetExtraFD(n int, file *os.File)
 
-	GetProcessState() *os.ProcessState
+	GetProcessState() Exiter
 
 	GetPath() string
 
@@ -151,7 +155,7 @@ func setupCommandIO(aCmd ast.Command, cmd CmdIO) error {
 	return nil
 }
 
-func executePipeline(pipeline ast.Pipeline, stdout io.Writer) (int, error) {
+func executePipeline(pipeline ast.Pipeline, stdin io.Reader, stdout, stderr io.Writer) (int, error) {
 	var cmds []CmdIO
 	var simpleCmds []ast.Command
 	// Create exec.Cmd for each command in the pipeline.
@@ -186,10 +190,10 @@ func executePipeline(pipeline ast.Pipeline, stdout io.Writer) (int, error) {
 	// Set stdin/stdout/stderr for the last command.
 	lastCmd := cmds[len(cmds)-1]
 	if lastCmd.GetStdin() == nil {
-		lastCmd.SetStdin(os.Stdin)
+		lastCmd.SetStdin(stdin)
 	}
 	lastCmd.SetStdout(stdout)
-	lastCmd.SetStderr(os.Stderr)
+	lastCmd.SetStderr(stderr)
 
 	// Handle io redirections for the last command.
 	if err := setupCommandIO(simpleCmds[len(simpleCmds)-1], lastCmd); err != nil {
@@ -200,7 +204,7 @@ func executePipeline(pipeline ast.Pipeline, stdout io.Writer) (int, error) {
 	for i := len(cmds) - 1; i > 0; i-- {
 		stdin, _ := cmds[i-1].StdoutPipe()
 		cmds[i].SetStdin(stdin)
-		cmds[i-1].SetStderr(os.Stderr)
+		cmds[i-1].SetStderr(stderr)
 		if err := setupCommandIO(simpleCmds[i-1], cmds[i-1]); err != nil {
 			return -1, fmt.Errorf("setup %q: %w", cmds[i-1].GetPath(), err)
 		}
@@ -228,7 +232,7 @@ func executePipeline(pipeline ast.Pipeline, stdout io.Writer) (int, error) {
 	return lastExitCode, nil
 }
 
-func evaluateAndOrs(andOrs []ast.AndOr, stdout io.Writer) (int, error) {
+func evaluateAndOrs(andOrs []ast.AndOr, stdin io.Reader, stdout, stderr io.Writer) (int, error) {
 	exitCode := -1
 	for _, andOr := range andOrs {
 		lastCmdSuccess := true
@@ -242,7 +246,7 @@ func evaluateAndOrs(andOrs []ast.AndOr, stdout io.Writer) (int, error) {
 					continue
 				}
 			}
-			lastExitCode, err := executePipeline(pipeline, stdout)
+			lastExitCode, err := executePipeline(pipeline, stdin, stdout, stderr)
 			if err != nil {
 				log.Printf("Pipeline %v failed: %s.\n", pipeline, err)
 			}
@@ -257,7 +261,7 @@ func evaluateAndOrs(andOrs []ast.AndOr, stdout io.Writer) (int, error) {
 	return exitCode, nil
 }
 
-func Evaluate(completeCmd ast.CompleteCommand, stdout io.Writer) (int, error) {
-	_ = completeCmd.Separator
-	return evaluateAndOrs(completeCmd.List.AndOrs, stdout)
+func Evaluate(completeCmd ast.CompleteCommand, stdin io.Reader, stdout, stderr io.Writer) (int, error) {
+	_ = completeCmd.Separator // TODO: Handle separator (job control).
+	return evaluateAndOrs(completeCmd.List.AndOrs, stdin, stdout, stderr)
 }
