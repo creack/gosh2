@@ -1,6 +1,9 @@
 package lexer
 
-import "strings"
+import (
+	"fmt"
+	"strings"
+)
 
 type stateFn func(*Lexer) stateFn
 
@@ -88,8 +91,9 @@ func lexNumber(l *Lexer) stateFn {
 func lexRedirect(l *Lexer) stateFn {
 	peeked := l.peek()
 	tok := l.thisToken(0)
-	l.next()
+	r := l.next()
 	nextTok := l.peek()
+	fmt.Printf(" - PEEKED: %q, CUR: %q -- %q, next: %cm nextTok: %c\n", peeked, l.curToken, tok, r, nextTok)
 
 	if tok.Value == "" {
 		if peeked == '>' {
@@ -105,7 +109,6 @@ func lexRedirect(l *Lexer) stateFn {
 		tok.Type = TokRedirectDoubleGreat
 	case peeked == '>' && nextTok == '&':
 		l.next()
-		l.ignore() // Ignore the '>&' so we can get the fd.
 		tok.Type = TokRedirectGreatAnd
 	case peeked == '>' && nextTok == '|':
 		l.next()
@@ -131,6 +134,7 @@ func lexRedirect(l *Lexer) stateFn {
 		tok.Type = TokRedirectLess
 	}
 
+	l.ignore() // Ignore the redirect operator, advance the pos.
 	return l.emitToken(tok)
 }
 

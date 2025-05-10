@@ -94,15 +94,22 @@ func parsePipeline(p *parser, endTokens []lexer.TokenType) ast.Pipeline {
 	if p.curToken.Type == lexer.TokBang {
 		pipeline.Negated = true
 		p.nextToken()
+		p.expect(lexer.TokWhitespace)
+		p.ignoreWhitespaces()
 	}
 
 	// Parse the commands.
 	for {
+		prefixRedirections := parseCommandRedirect(p)
+
 		switch p.curToken.Type {
 		case lexer.TokIdentifier, lexer.TokSingleQuoteString, lexer.TokDoubleQuoteString, lexer.TokNumber:
-			cmd := parseCommand(p, endTokens)
+			cmd := parseCommand(p, prefixRedirections, endTokens)
 			pipeline.Commands = append(pipeline.Commands, cmd)
 		case lexer.TokParenLeft:
+			if len(prefixRedirections) > 0 { // While zsh supports it, bash/posix doesn't.
+				panic(fmt.Errorf("unexpected prefix redirections %q before subshell", prefixRedirections))
+			}
 			p.nextToken() // Consume the left parenthesis.
 			cmd := parseSubshell(p)
 			pipeline.Commands = append(pipeline.Commands, cmd)
@@ -144,22 +151,19 @@ func parseSubshell(p *parser) ast.CompoundCommand {
 	return compCmd
 }
 
-func parseCommand(p *parser, endToken []lexer.TokenType) ast.SimpleCommand {
+func parseCommand(p *parser, prefixRedirections []ast.IORedirect, endToken []lexer.TokenType) ast.SimpleCommand {
 	p.ignoreWhitespaces()
 	endToken = append(endToken, lexer.TokPipe)
 
 	simpleCmd := ast.SimpleCommand{}
 
 	// Handle prefixes.
-	simpleCmd.Prefix = parseCommandPrefix(p)
+	simpleCmd.Prefix = parseCommandPrefix(p, prefixRedirections)
 
 	// Handle the command name.
 	// TODO: Add support for `e"c"h'o' hello world`.
 	simpleCmd.Name = p.expectIdentifierStr().Value
 	p.nextToken()
-
-	// Expect whitespace or end token.
-	p.expect(endToken...)
 	p.ignoreWhitespaces()
 
 	// As long as we have a word, we can add it to the suffix.
@@ -183,9 +187,8 @@ func parseCommand(p *parser, endToken []lexer.TokenType) ast.SimpleCommand {
 	return simpleCmd
 }
 
-func parseCommandPrefix(p *parser) ast.CmdPrefix {
+func parseCommandPrefix(p *parser, redirects []ast.IORedirect) ast.CmdPrefix {
 	var assignments []string
-	var redirects []ast.IORedirect
 	for {
 		assign := parseVariableAssignments(p)
 		reds := parseCommandRedirect(p)
@@ -282,8 +285,7 @@ func parseCommandRedirect(p *parser) []ast.IORedirect {
 			p.nextToken() // Consume the fd number.
 			p.ignoreWhitespaces()
 			hereEnd := p.expectIdentifierStr().Value
-			p.nextToken() // Consume the hereEnd token.
-			p.ignoreWhitespaces()
+			p.nextToken()              // Consume the hereEnd token.
 			p.expect(lexer.TokNewline) // We exepect a newline token here.
 			p.nextToken()              // Consume the newline token.
 
