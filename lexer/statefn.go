@@ -1,7 +1,6 @@
 package lexer
 
 import (
-	"fmt"
 	"strings"
 )
 
@@ -91,9 +90,8 @@ func lexNumber(l *Lexer) stateFn {
 func lexRedirect(l *Lexer) stateFn {
 	peeked := l.peek()
 	tok := l.thisToken(0)
-	r := l.next()
+	l.next()
 	nextTok := l.peek()
-	fmt.Printf(" - PEEKED: %q, CUR: %q -- %q, next: %cm nextTok: %c\n", peeked, l.curToken, tok, r, nextTok)
 
 	if tok.Value == "" {
 		if peeked == '>' {

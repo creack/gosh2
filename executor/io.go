@@ -8,17 +8,7 @@ import (
 	"go.creack.net/gosh2/lexer"
 )
 
-type FileWrap struct {
-	*os.File
-}
-
-func (f *FileWrap) Close() error {
-	fmt.Printf("Checking if file %q is closed\n", f.Name())
-	return f.File.Close()
-}
-
 func setupCommandIO(aCmd ast.Command, cmd CmdIO) error {
-	fmt.Printf("<<<<< %v\n", aCmd.GetRedirects())
 	for _, elem := range aCmd.GetRedirects() {
 		var openFlags int
 		var file *os.File
@@ -54,7 +44,6 @@ func setupCommandIO(aCmd ast.Command, cmd CmdIO) error {
 			if elem.Op == lexer.TokRedirectGreatAnd && elem.Number != 1 {
 				return fmt.Errorf("ambiguous redirect %q", elem.Op)
 			}
-			fmt.Printf(">> OPEN FILE %q\n", elem.Filename)
 			f, err := os.OpenFile(elem.Filename, openFlags, 0o644)
 			if err != nil {
 				return fmt.Errorf("openfile %q: %w", elem.Filename, err)

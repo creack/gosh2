@@ -51,7 +51,7 @@ func (l *Lexer) NextToken() Token {
 	for {
 		state = state(l)
 		if state == nil {
-			fmt.Printf("LEXER: %s\n", l.curToken)
+			// fmt.Printf("LEXER: %s\n", l.curToken)
 			// time.Sleep(1e9)
 			return l.curToken
 		}
