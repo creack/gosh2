@@ -3,6 +3,7 @@ package parser
 import (
 	"fmt"
 	"io"
+	"strings"
 
 	"go.creack.net/gosh2/ast"
 	"go.creack.net/gosh2/executor"
@@ -113,6 +114,8 @@ func (p *parser) evalToken(tok lexer.Token) lexer.Token {
 	case lexer.TokCmdSubstitution:
 		p.curToken = tok
 		return p.evalCommandSubstitution()
+	case lexer.TokDoubleQuoteString:
+		tok.Value = strings.ReplaceAll(tok.Value, "\\\"", "\"")
 	}
 	return tok
 }
