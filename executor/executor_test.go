@@ -36,19 +36,18 @@ func setupEnv(t *testing.T) {
 
 	// Create bin directory and populate with fake executables (a la busybox).
 	require.NoError(t, os.MkdirAll("bin", 0755), "failed to create bin dir")
+	src, err := os.ReadFile(os.Args[0])
+	require.NoError(t, err, "failed to read file %q", os.Args[0])
 	for _, name := range []string{
 		"myecho",
 		// TODO: Implement rm, ls, cat, cat -e.
 	} {
-		f, err := os.Create("bin/" + name)
-		require.NoError(t, err, "failed to create file %q", name)
-		assert.NoError(t, f.Chmod(0755), "failed to chmod file %q", name)
-		require.NoError(t, f.Close(), "failed to close file %q", name)
+		require.NoError(t, os.WriteFile("bin/"+name, src, 0755), "failed to write file %q", name)
 	}
 
 	require.NoError(t, os.Setenv("GOSH2_TEST", "1"), "failed to set env GOSH2_TEST")
 	// TODO: Remove the parent's PATH once all binaries are implemented.
-	require.NoError(t, os.Setenv("PATH", os.Getenv("PATH")+":"+tmpDir+"/bin"), "failed to set env PATH")
+	require.NoError(t, os.Setenv("PATH", tmpDir+"/bin:"+os.Getenv("PATH")), "failed to set env PATH")
 }
 
 var flSub = flag.Bool("sub", false, "Run as subshell")
@@ -56,9 +55,9 @@ var flSub = flag.Bool("sub", false, "Run as subshell")
 func TestMain(m *testing.M) {
 	switch os.Args[0] {
 	case "myecho":
-		fmt.Printf("Args: %d\n", len(os.Args))
+		fmt.Printf("Args: %d\n", len(os.Args)-1)
 		fmt.Printf("%s\n", strings.Join(os.Args[1:], " "))
-		fmt.Printf("%q\n", strings.Join(os.Args[1:], " "))
+		//fmt.Printf("%q\n", strings.Join(os.Args[1:], " "))
 		os.Exit(0)
 		return
 	}
@@ -113,6 +112,9 @@ func TestExecutor(t *testing.T) {
 		{name: "heredoc left space", input: "echo ___; cat -e <<EOF\nhello\nworld\nEOF\necho ^^^^", stdout: "___\nhello$\nworld$\n^^^^\n"},
 		{name: "heredoc space", input: "echo ___; cat -e << EOF\nhello\nworld\nEOF\necho ^^^^", stdout: "___\nhello$\nworld$\n^^^^\n"},
 		{name: "heredoc no space", input: "echo ___; cat -e<<EOF\nhello\nworld\nEOF\necho ^^^^", stdout: "___\nhello$\nworld$\n^^^^\n"},
+
+		{name: "backslash escape", input: `myecho a\ b\" "\a\b\\\a\"" '\a\b\\\a\"' \a\b\\\a\"`, stdout: "Args: 4\n" + `a b" \a\b\\a" \a\b\\\a\" ab\a"` + "\n"},
+		//{name: "backslash escape", input: `myecho a\ b "\a\b\\\a\"" '\a\b\\\a' \a\b\\\a`, stdout: "Args: 4\na b \a\b\a\" \a\b\a \a\b\a"},
 	}
 
 	for _, tt := range tests {
@@ -254,7 +256,6 @@ func run(tt testCase) func(t *testing.T) {
  	// input = "foo.sh 7<foo | cat -e; echo --; ls; echo --; cat a"
 
 
-	input = "echo ___; cat -e<<EOF\nhello\nworld\nEOF\necho ^^^^"
 	input = `myecho "\a\b\\\a" '\a\b\\\a' \a\b\\\a`
 	input = `echo hello\"world`
 	input = "echo --; cat foo"
