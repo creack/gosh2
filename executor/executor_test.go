@@ -110,7 +110,9 @@ func TestExecutor(t *testing.T) {
 		// {name: "internal error", input: "cat /dev/fd/9 9<&7 7<foo", stderr: "bad file descriptor 7\n", exitCode: -1},
 		// {name: "subshell internal error redirect", input: "(cat /dev/fd/9 9<&7 7<foo) >& bar; cat bar", stdout: "bad file descriptor 7\n"},
 
-		{name: "heredoc", input: "echo ___; cat -e <<EOF\nhello\nworld\nEOF\necho ^^^^", stdout: "___\nhello$\nworld$\n^^^^\n"},
+		{name: "heredoc left space", input: "echo ___; cat -e <<EOF\nhello\nworld\nEOF\necho ^^^^", stdout: "___\nhello$\nworld$\n^^^^\n"},
+		{name: "heredoc space", input: "echo ___; cat -e << EOF\nhello\nworld\nEOF\necho ^^^^", stdout: "___\nhello$\nworld$\n^^^^\n"},
+		{name: "heredoc no space", input: "echo ___; cat -e<<EOF\nhello\nworld\nEOF\necho ^^^^", stdout: "___\nhello$\nworld$\n^^^^\n"},
 	}
 
 	for _, tt := range tests {

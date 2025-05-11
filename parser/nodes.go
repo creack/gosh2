@@ -170,7 +170,9 @@ func parseCommand(p *parser, prefixRedirections []ast.IORedirect, endToken []lex
 	for p.curToken.Type.IsOneOf(lexer.TokIdentifier, lexer.TokSingleQuoteString, lexer.TokDoubleQuoteString, lexer.TokNumber) {
 		val := p.curToken.Value
 		p.nextToken()
-		for p.curToken.Type != lexer.TokError && !p.curToken.Type.IsOneOf(endToken...) {
+		for p.curToken.Type != lexer.TokError && // Stop if we hit an error.
+			!p.curToken.Type.IsOneOf(endToken...) && // Stop if we hit an end token.
+			!p.curToken.Type.IsOneOf(lexer.TokAnyRedirect...) { // Stop if we hit a redirect.
 			val += p.curToken.Value
 			p.nextToken()
 		}
@@ -226,7 +228,6 @@ func parseVariableAssignments(p *parser) []string {
 func parseCommandRedirect(p *parser) []ast.IORedirect {
 	var redirects []ast.IORedirect
 	for {
-		p.ignoreWhitespaces()
 		switch p.curToken.Type {
 		case lexer.TokRedirectGreatAnd, lexer.TokRedirectLessAnd:
 			// Parse the fd number.
@@ -257,6 +258,7 @@ func parseCommandRedirect(p *parser) []ast.IORedirect {
 			}
 
 			p.nextToken()
+			p.ignoreWhitespaces()
 			redirects = append(redirects, red)
 
 		case lexer.TokRedirectLess, lexer.TokRedirectGreat, lexer.TokRedirectDoubleGreat, lexer.TokRedirectLessGreat:
@@ -274,6 +276,7 @@ func parseCommandRedirect(p *parser) []ast.IORedirect {
 				Filename: p.expectIdentifierStr().Value,
 			}
 			p.nextToken()
+			p.ignoreWhitespaces()
 			redirects = append(redirects, red)
 
 		case lexer.TokRedirectDoubleLess:
