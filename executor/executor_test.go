@@ -27,7 +27,7 @@ func setupEnv(t *testing.T) {
 	require.NoError(t, os.WriteFile("foo", []byte("foocontent\n"), 0644), "failed to write file %q", "foo")
 
 	for _, name := range []string{
-		"b", "bb", "a", "aa", "ast", "bara", "foo.sh", "go.mod", "go.sum", "lexer", "tmp", "sh",
+		"b", "bb", "a", "aa", "ab", "ast", "bara", "foo.sh", "go.mod", "go.sum", "lexer", "tmp", "sh",
 	} {
 		f, err := os.Create(name)
 		require.NoError(t, err, "failed to create file %q", name)
@@ -40,7 +40,8 @@ func setupEnv(t *testing.T) {
 	require.NoError(t, err, "failed to read file %q", os.Args[0])
 	for _, name := range []string{
 		"myecho",
-		// TODO: Implement rm, ls, cat, cat -e.
+		"mygetenv",
+		// TODO: Implement rm, ls, cat, cat -e, grep.
 	} {
 		require.NoError(t, os.WriteFile("bin/"+name, src, 0755), "failed to write file %q", name)
 	}
@@ -54,11 +55,24 @@ var flSub = flag.Bool("sub", false, "Run as subshell")
 
 func TestMain(m *testing.M) {
 	switch os.Args[0] {
+	// myecho dumps the number of argument and the arguments without any processing,
+	// used to test backslash, quotes, etc.
 	case "myecho":
 		fmt.Printf("Args: %d\n", len(os.Args)-1)
 		fmt.Printf("%s\n", strings.Join(os.Args[1:], " "))
-		//fmt.Printf("%q\n", strings.Join(os.Args[1:], " "))
 		os.Exit(0)
+		return
+		// mygetenv dumps the environment variable in argv[1].
+	case "mygetenv":
+		if len(os.Args) != 2 {
+			log.Fatalf("Usage: %s <var>\n", os.Args[0])
+		}
+		n := os.Args[1]
+		v := os.Getenv(n)
+		if v == "" {
+			log.Fatalf("Environment variable %q not found", n)
+		}
+		fmt.Printf("%s\n", v)
 		return
 	}
 	flag.Parse()
@@ -93,8 +107,6 @@ func TestExecutor(t *testing.T) {
 		{name: "cmd right redir", input: "ls a aa > foo; cat foo", stdout: "a\naa\n"},
 		{name: "builtin double right redirect", input: "rm foo; echo hello >> foo; echo world >> foo; cat foo", stdout: "hello\nworld\n"},
 		{name: "left redirect", input: "cat < foo", stdout: "foocontent\n"},
-		// TODO: Fix this.
-		// {name: "fd right redirect", input: "(echo hello >&8) 8> ret; cat ret", stdout: "hello\n"},
 		{name: "fd right redirect", input: "echo hello 8>bar >&8; cat bar", stdout: "hello\n"},
 		{name: "andors success", input: "ls a && echo why && echo ok1 || echo ko2 && echo ok2; cat foo; echo -1-", stdout: "a\nwhy\nok1\nok2\nfoocontent\n-1-\n"},
 		{name: "andors failure", input: "ls /foo/bar/not/exists && echo why && echo ok1 || echo ko2 && echo ok2; cat foo; echo -1-", stdout: "ko2\nok2\nfoocontent\n-1-\n", exitCode: 0},
@@ -104,6 +116,7 @@ func TestExecutor(t *testing.T) {
 		// TODO: Remove sh -c once we have implemented the builtin read.
 		{name: "leftright redirect", input: "echo aa > foo; echo bb >> foo; sh -c 'read line; echo $line; echo cc >&0' <>foo; echo --; cat foo", stdout: "aa\n--\naa\ncc\n"},
 		{name: "fd left redirect", input: "cat " + selfFD() + "/9 7<foo 9<&7", stdout: "foocontent\n"},
+		{name: "simple semicolon", input: "echo hello; cat foo", stdout: "hello\nfoocontent\n"},
 		// TODO: Handle this case.
 		// Add simple errors like bin not found in PATH.
 		// {name: "internal error", input: "cat /dev/fd/9 9<&7 7<foo", stderr: "bad file descriptor 7\n", exitCode: -1},
@@ -113,8 +126,35 @@ func TestExecutor(t *testing.T) {
 		{name: "heredoc space", input: "echo ___; cat -e << EOF\nhello\nworld\nEOF\necho ^^^^", stdout: "___\nhello$\nworld$\n^^^^\n"},
 		{name: "heredoc no space", input: "echo ___; cat -e<<EOF\nhello\nworld\nEOF\necho ^^^^", stdout: "___\nhello$\nworld$\n^^^^\n"},
 
-		{name: "backslash escape", input: `myecho a\ b\" "\a\b\\\a\"" '\a\b\\\a\"' \a\b\\\a\"`, stdout: "Args: 4\n" + `a b" \a\b\\a" \a\b\\\a\" ab\a"` + "\n"},
-		//{name: "backslash escape", input: `myecho a\ b "\a\b\\\a\"" '\a\b\\\a' \a\b\\\a`, stdout: "Args: 4\na b \a\b\a\" \a\b\a \a\b\a"},
+		{name: "backslash escape chars", input: `myecho a\ b\" "\a\b\\\a\"" '\a\b\\\a\"' \a\b\\\a\"`, stdout: "Args: 4\n" + `a b" \a\b\\a" \a\b\\\a\" ab\a"` + "\n"},
+		{name: "backslash doublequote", input: `echo hello\"world`, stdout: "hello\"world\n"},
+		{name: "backslash singlequote newline", input: "echo 'hello\\\nworld'''a", stdout: "hello\\\nworlda\n"},
+		{name: "backslash newline", input: "echo hello\\\nworld''\"a\\\nb\"", stdout: "helloworldab\n"},
+
+		{name: "globing question", input: "echo a?", stdout: "aa ab\n"},
+		{name: "globing bracket", input: "echo a[ab]", stdout: "aa ab\n"},
+		{name: "globing questionbracket", input: "echo a[?b]", stdout: "ab\n"},
+		{name: "globing star", input: "echo a*", stdout: "a aa ab ast\n"},
+
+		{name: "assignment prefix", input: "fooa=bar mygetenv fooa", stdout: "bar\n"},
+		{name: "mixed prefix", input: "fooa=bar >bar foo=foo mygetenv foo; cat -e bar", stdout: "foo$\n"},
+
+		{name: "backticks nested", input: "echo `echo \\`echo hello\\``", stdout: "hello\n"},
+		{name: "backticks neighbors", input: "echo a`ls a`b", stdout: "aab\n"},
+		{name: "backticks error", input: "echo a`exit 1`;echo bb", stdout: "a\nbb\n"},
+		// TODO: Fix this.
+		// {name: "backticks subshell stderr", input: "echo a`(echo oka; echo okb >&2; echo okc)`b", stdout: "aoka okcb\n", stderr: "okb\n"},
+		{name: "cmd substitution", input: "echo z$(echo b$(echo c$(echo d$(echo ehello))))a", stdout: "zbcdehelloa\n"},
+
+		{name: "subshell simple", input: "(echo hello)", stdout: "hello\n"},
+		{name: "subshell cross", input: "(echo hello > bar; cat bar); cat bar", stdout: "hello\nhello\n"},
+		{name: "subshell redirect", input: "(echo hello) > bar; cat bar", stdout: "hello\n"},
+		// TODO: Fix this.
+		// {name: "subshell fd right redirect", input: "(echo hello >&8) 8> ret; cat ret", stdout: "hello\n"},
+		{name: "subshell pipe", input: "(echo hello) | cat -e", stdout: "hello$\n"},
+		// TODO: Fix this.
+		// {name: "subshell multi", input: "(echo hello; (echo world)); echo baz", stdout: "hello\nworld\nbaz\n"},
+		// {name: "subshell stderr", input: "(echo a`sh -c \"echo oka; echo okb >&2; echo okc\"`b 2>&1) | cat -e", stdout: "aoka okcb$\n", stderr: "okb\n"},
 	}
 
 	for _, tt := range tests {
@@ -193,6 +233,7 @@ func run(tt testCase) func(t *testing.T) {
 		shellList := []string{"sh", "sh -c", "bash", "bash -c", "bash --posix", "bash --posix -c", "zsh", "zsh -c", "gosh2"}
 		if testing.Short() {
 			shellList = []string{"bash --posix", "gosh2"}
+			//shellList = []string{"gosh2"}
 		}
 		for _, elem := range shellList {
 			t.Run(elem, func(t *testing.T) {
@@ -256,25 +297,12 @@ func run(tt testCase) func(t *testing.T) {
  	// input = "foo.sh 7<foo | cat -e; echo --; ls; echo --; cat a"
 
 
-	input = `myecho "\a\b\\\a" '\a\b\\\a' \a\b\\\a`
-	input = `echo hello\"world`
-	input = "echo --; cat foo"
-	input = "rm -f foo bar; ls -l > bar | foo.sh | wc -c | cat -e > foo; echo --; cat bar; echo --; cat foo"
-	input = `echo 'hello\
-world'''a`
-	input = `echo [?b]`
-	input = "echo hello > foo; foo.sh <> foo; echo --; cat foo"
-	input = `fooa=bar >bar foo=foo sh -c 'echo $foo'; cat -e bar`
-	input = "/bin/echo `/bin/echo \\`/bin/echo hello\\``"
-	input = "echo z$(echo b$(echo c$(echo d$(echo ehello))))a"
-	input = "echo a`ls`b"
-	input = "echo a`exit 1`;echo bb"
-	input = "echo a`sh -c \"echo oka; echo okb >&2; echo okc\"`b"
+
 	input = "(echo a`sh -c \"echo oka; echo okb >&2; echo okc\"`b 2>&1) | cat -e"
-	input = "(echo hello > foo1; cat foo1)"
-	input = "echo hellor 9> foo >&9;cat foo"
-	input = "foooobarrrr=bar1 env > foo; cat foo"
+
+
 	input = "cd /tmp; pwd; (cd /Volumes; pwd); pwd"
+
 	input = "(echo hello) > foo; cat foo"
 	input = "echo hello; cat foo"
 */

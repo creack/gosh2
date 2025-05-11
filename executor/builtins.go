@@ -107,6 +107,24 @@ func newBuiltinEnv(scmd ast.SimpleCommand) *builtinCmd {
 	return cmd
 }
 
+func newBuiltinGetenv(scmd ast.SimpleCommand) *builtinCmd {
+	cmd := newBuiltinCmd(scmd)
+	env := append(os.Environ(), scmd.Prefix.Assignments...)
+	ret := ""
+	for _, elem := range env {
+		if strings.HasPrefix(elem, scmd.Suffix.Words[0]+"=") {
+			ret = strings.TrimPrefix(elem, scmd.Suffix.Words[0]+"=")
+			break
+		}
+	}
+	if ret != "" {
+		ret += "\n"
+	}
+	cmd.output = ret
+
+	return cmd
+}
+
 type builtinExit struct {
 	*builtinCmd
 }
@@ -163,6 +181,8 @@ func handleBuiltinCmd(scmd ast.SimpleCommand) CmdIO {
 		return newBuiltinEcho(scmd)
 	case "env":
 		return newBuiltinEnv(scmd)
+	case "getenv":
+		return newBuiltinGetenv(scmd)
 	case "exit":
 		return &builtinExit{builtinCmd: newBuiltinCmd(scmd)}
 	case "cd":
