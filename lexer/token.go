@@ -59,6 +59,18 @@ const (
 	FinalToken
 )
 
+var TokAnyRedirect = []TokenType{
+	TokRedirectLess,
+	TokRedirectGreat,
+	TokRedirectDoubleLess,
+	TokRedirectDoubleGreat,
+	TokRedirectLessAnd,
+	TokRedirectGreatAnd,
+	TokRedirectLessGreat,
+	TokRedirectDoubleLessDash,
+	TokRedirectClobber,
+}
+
 // String returns the string representation of the token type.
 func (tt TokenType) String() string {
 	return tokenTypeStrings[tt]

@@ -49,6 +49,7 @@ world'''a`
 	//input = "mkdir -p aaaa1234; cd aaaa1234; echo hello1 8>bar33 >&8; ls; cat bar33"
 
 	input = "rm -f bar33; echo hello1 8<>bar33 >&8; ls; cat bar33"
+	input = "cat -e<<EOF\nEOF"
 
 	cmd := exec.Command("bash", "--posix")
 	cmd.Stdin = strings.NewReader(input)
