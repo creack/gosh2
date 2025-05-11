@@ -8,6 +8,7 @@ import (
 	"strings"
 
 	"github.com/kr/pretty"
+	"go.creack.net/gosh2/ast"
 	"go.creack.net/gosh2/parser"
 )
 
@@ -52,19 +53,28 @@ world'''a`
 	input = "echo `echo hello`"
 	input = "(echo hello)>foo; cat foo"
 	input = "echo hello>foo; cat foo"
+	input = "echo hello | cat -e | cat -e"
+	input = "a=b echo a b c > f 8>&1 >> foo < bar <<-HERE"
+	input = "a=b echo"
+	input = "ls a aa > foo; cat foo"
+	input = "echo hello | cat -e | cat -e"
+	input = "< foo wc | cat -e"
+	//input = "cat foo | wc | cat -e"
+	input = "cat -e <<EOF\nhello\nworld\nEOF\necho a"
 
 	cmd := exec.Command("bash", "--posix")
 	cmd.Stdin = strings.NewReader(input)
 	cmd.Stdout = os.Stdout
 	cmd.Stderr = os.Stderr
-	fmt.Printf("------POSIX-----\n")
-	if err := cmd.Run(); err != nil {
-		log.Printf("sh error: %s.", err)
+	if false {
+		fmt.Printf("------POSIX-----\n")
+		if err := cmd.Run(); err != nil {
+			log.Printf("sh error: %s.", err)
+		}
+		fmt.Printf("------!POSIX-----\n")
+		fmt.Printf("------GOSH-------\n")
+		defer fmt.Printf("------!gosh-----\n")
 	}
-	fmt.Printf("------!POSIX-----\n")
-	fmt.Printf("------GOSH-------\n")
-	defer fmt.Printf("------!gosh-----\n")
-
 	if true {
 		p := parser.New(strings.NewReader(input))
 		for {
@@ -72,9 +82,24 @@ world'''a`
 			if cmd == nil {
 				break
 			}
-			pretty.Println(cmd)
+			fmt.Printf("------>>\n%s\n^^^^\n", cmd.Dump())
+
+			break
+			pretty.Println(cmd.List)
 		}
 	}
+
+	if false {
+		p := parser.New(strings.NewReader(input))
+		completeCommand := p.NextCompleteCommand()
+		list := completeCommand.List
+		fmt.Println(list.Left.Left.Right.Right.Right.Right.(*ast.SimpleCommand).Suffix.Words)
+		fmt.Println(list.Left.Separator)
+		fmt.Println(list.Left.Right.Right.Right.Right.(*ast.SimpleCommand).Suffix.Words)
+		fmt.Println(list.Separator)
+		fmt.Println(list.Right.Right.Right.Right.(*ast.SimpleCommand).Suffix.Words)
+	}
+
 	return parser.Run(strings.NewReader(input), os.Stdin, os.Stdout, os.Stderr)
 }
 
@@ -97,7 +122,7 @@ func main() {
 	if err := os.Chdir(tmpDir); err != nil {
 		log.Fatalf("Fail: %s.", err)
 	}
-	if err := os.WriteFile("foo", []byte("foo\n"), 0644); err != nil {
+	if err := os.WriteFile("foo", []byte("foocontent\n"), 0644); err != nil {
 		log.Fatalf("Fail: %s.", err)
 	}
 	exec.Command("touch", "b", "bb", "a", "aa", "ast", "bara", "foo", "foo.sh", "go.mod", "go.sum", "lexer", "tmp", "sh").Run()

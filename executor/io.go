@@ -9,11 +9,11 @@ import (
 )
 
 func setupCommandIO(aCmd ast.Command, cmd CmdIO) error {
-	for _, elem := range aCmd.GetRedirects() {
+	for _, elem := range aCmd.IORedirects() {
 		var openFlags int
 		var file *os.File
 
-		switch elem.Op {
+		switch elem.IOFile.Operator {
 		case lexer.TokRedirectLess:
 			openFlags |= os.O_RDONLY
 		case lexer.TokRedirectGreat, lexer.TokRedirectGreatAnd:
@@ -30,27 +30,28 @@ func setupCommandIO(aCmd ast.Command, cmd CmdIO) error {
 			}
 			go func() {
 				defer func() { _ = w.Close() }() // Best effort.
-				fmt.Fprint(w, elem.HereDoc)
+				fmt.Printf("------------???? %q\n", elem.IOFile.Filename)
+				fmt.Fprint(w, elem.IOFile.Filename)
 			}()
 			file = r
 		default:
-			return fmt.Errorf("unsupported redirect %q", elem.Op)
+			return fmt.Errorf("unsupported redirect %q", elem.IOFile.Operator)
 		}
 
-		if elem.Filename != "" {
+		if file == nil && elem.IOFile.Filename != "" {
 			// Check for invalid case `echo hello 4>& foo`.
 			// The `>&` redirect only support '1' (or empty, which defaults to 1)
 			// when used with a target filename.
-			if elem.Op == lexer.TokRedirectGreatAnd && elem.Number != 1 {
-				return fmt.Errorf("ambiguous redirect %q", elem.Op)
+			if elem.IOFile.Operator == lexer.TokRedirectGreatAnd && elem.Number != 1 {
+				return fmt.Errorf("ambiguous redirect %q", elem.IOFile.Operator)
 			}
-			f, err := os.OpenFile(elem.Filename, openFlags, 0o644)
+			f, err := os.OpenFile(elem.IOFile.Filename, openFlags, 0o644)
 			if err != nil {
-				return fmt.Errorf("openfile %q: %w", elem.Filename, err)
+				return fmt.Errorf("openfile %q: %w", elem.IOFile.Filename, err)
 			}
 			file = f
-		} else if elem.ToNumber != nil {
-			switch *elem.ToNumber {
+		} else if elem.IOFile.ToNumber != nil {
+			switch *elem.IOFile.ToNumber {
 			case 0:
 				file, _ = cmd.GetStdin().(*os.File)
 			case 1:
@@ -58,13 +59,13 @@ func setupCommandIO(aCmd ast.Command, cmd CmdIO) error {
 			case 2:
 				file, _ = cmd.GetStderr().(*os.File)
 			default:
-				file = cmd.GetExtraFD(*elem.ToNumber)
+				file = cmd.GetExtraFD(*elem.IOFile.ToNumber)
 			}
 			if file == nil {
-				return fmt.Errorf("bad file descriptior %d\n", *elem.ToNumber)
+				return fmt.Errorf("bad file descriptor %d\n", *elem.IOFile.ToNumber)
 			}
 		} else if file == nil {
-			return fmt.Errorf("missing filename or fd for %q", elem.Op)
+			return fmt.Errorf("missing filename or fd for %q", elem.IOFile.Operator)
 		}
 
 		switch elem.Number {
@@ -73,7 +74,7 @@ func setupCommandIO(aCmd ast.Command, cmd CmdIO) error {
 		case 1:
 			cmd.SetStdout(file)
 			// Case for `>& filename`, redirect both stdout and stderr to the file.
-			if elem.Op == lexer.TokRedirectGreatAnd && elem.Filename != "" {
+			if elem.IOFile.Operator == lexer.TokRedirectGreatAnd && elem.IOFile.Filename != "" {
 				cmd.SetStderr(file)
 			}
 		case 2:

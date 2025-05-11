@@ -2,7 +2,6 @@ package ast
 
 import (
 	"fmt"
-	"strings"
 
 	"go.creack.net/gosh2/lexer"
 )
@@ -10,92 +9,64 @@ import (
 // Structure following the posix shell grammar as defined in
 //   https://pubs.opengroup.org/onlinepubs/9699919799/utilities/V3_chap02.html#tag_18_10_02
 
-// Node is the interface that all AST nodes implement.
-type Node interface {
-	Dump() string
-}
-
 // Program represents the top-level program.
 type Program struct {
 	Commands []CompleteCommand // Represents a list of complete commands, i.e. separated by newlines.
 }
 
 func (p Program) Dump() string {
-	result := "Program:\n"
+	result := ""
 	for _, cmd := range p.Commands {
-		result += fmt.Sprintf("  %s\n", cmd.Dump())
+		result += fmt.Sprintf("%s\n", cmd.Dump())
 	}
 	return result
 }
 
-// CompleteCommand represents a complete command with optional final separator.
 // CompleteCommand : list separator_op | list.
 type CompleteCommand struct {
-	List      List            // The list of commands, separated by ; or &.
+	List      *List           // The list of commands, separated by ; or &.
 	Separator lexer.TokenType // ";", "&", or empty.
 }
 
 func (c CompleteCommand) Dump() string {
-	if c.Separator != lexer.TokEOF {
-		return fmt.Sprintf("%s %s", c.List.Dump(), c.Separator)
+	str := c.List.Dump()
+	if c.Separator != lexer.TokEOF && c.Separator != lexer.TokError {
+		str += c.Separator.String()
 	}
-	return c.List.Dump()
+	return str
 }
 
-func (c *CompleteCommand) SetList(list List) {
-	c.List = list
-}
-
-func (c *CompleteCommand) SetSeparator(sep lexer.TokenType) {
-	c.Separator = sep
-}
-
-// List represents a list of And/Or connected pipelines.
-//
 // List : list separator_op and_or | and_or.
 type List struct {
-	AndOrs     []AndOr           // List of AndOrs.
-	Separators []lexer.TokenType // ";", "&", or empty.
-}
-
-func (l *List) AppendAndOr(andOr AndOr) {
-	l.AndOrs = append(l.AndOrs, andOr)
-}
-
-func (l *List) AppendSeparator(sep lexer.TokenType) {
-	l.Separators = append(l.Separators, sep)
+	Left      *List
+	Separator lexer.TokenType // ";", "&", or empty.
+	Right     *AndOr
 }
 
 func (l List) Dump() string {
-	return Term(l).Dump()
+	if l.Left == nil {
+		return l.Right.Dump()
+	}
+	return fmt.Sprintf("%s%s %s", l.Left.Dump(), l.Separator, l.Right.Dump())
 }
 
 // AndOr represents a pipeline or pipelines connected with && or ||.
 type AndOr struct {
-	Pipelines []Pipeline
-	Operators []lexer.TokenType // "&&" or "||" between pipelines.
+	Left      *AndOr
+	Separator lexer.TokenType // "&&" or "||".
+	Right     *Pipeline
 }
 
 func (a AndOr) Dump() string {
-	out := ""
-	for i, pipeline := range a.Pipelines {
-		out += pipeline.Dump()
-		if i < len(a.Operators) {
-			switch a.Operators[i] {
-			case lexer.TokLogicalAnd:
-				out += " &&"
-			case lexer.TokLogicalOr:
-				out += " ||"
-			}
-		}
+	if a.Left == nil {
+		return a.Right.Dump()
 	}
-	return out
+	return fmt.Sprintf("%s %s %s", a.Left.Dump(), a.Separator, a.Right.Dump())
 }
 
-// Pipeline represents a sequence of commands connected by pipes.
 type Pipeline struct {
-	Commands []Command
-	Negated  bool // True if pipeline starts with !.
+	Negated bool // True if pipeline starts with !.
+	Right   *PipelineSequence
 }
 
 func (p Pipeline) Dump() string {
@@ -103,181 +74,180 @@ func (p Pipeline) Dump() string {
 	if p.Negated {
 		result += "! "
 	}
-	var cmds []string
-	for _, cmd := range p.Commands {
-		cmds = append(cmds, cmd.Dump())
+	if p.Right == nil {
+		return result
 	}
+	return result + p.Right.Dump()
+}
 
-	return result + strings.Join(cmds, " | ")
+// PipelineSequence represents a sequence of commands connected by pipes.
+type PipelineSequence struct {
+	Left  *PipelineSequence
+	Right Command
+}
+
+func (p PipelineSequence) Dump() string {
+	if p.Left == nil {
+		return p.Right.Dump()
+	}
+	return fmt.Sprintf("%s | %s", p.Left.Dump(), p.Right.Dump())
 }
 
 // Command represents any command (simple or compound).
 type Command interface {
-	Node
-	CommandDump()
-	GetRedirects() []IORedirect
+	Dump() string
+	command()
+	IORedirects() []IORedirect
 }
 
 // SimpleCommand represents a basic command with name, arguments and redirections.
 type SimpleCommand struct {
-	Prefix CmdPrefix
-	Name   string // The command name.
-	Suffix CmdSuffix
+	Prefix *CmdPrefix
+	Name   string // cmd_word or cmd_name.
+	Suffix *CmdSuffix
 }
 
-func (s SimpleCommand) GetRedirects() []IORedirect {
-	return append(s.Prefix.Redirects, s.Suffix.Redirects...)
+func (s SimpleCommand) IORedirects() []IORedirect {
+	if s.Prefix == nil && s.Suffix == nil {
+		return nil
+	}
+	if s.Prefix == nil {
+		return s.Suffix.IORedirects()
+	}
+	if s.Suffix == nil {
+		return s.Prefix.IORedirects()
+	}
+	return append(s.Prefix.IORedirects(), s.Suffix.IORedirects()...)
 }
 
 func (s SimpleCommand) Dump() string {
-	out := s.Prefix.Dump()
+	out := ""
+	if s.Prefix != nil {
+		out += s.Prefix.Dump()
+	}
 	if out != "" {
 		out += " "
 	}
 	out += s.Name
-	suffix := s.Suffix.Dump()
-	if suffix != "" {
-		out += " " + suffix
+	if s.Suffix != nil {
+		out += " " + s.Suffix.Dump()
 	}
 	return out
 }
 
-func (s SimpleCommand) CommandDump() {}
+func (s SimpleCommand) command() {}
 
-// CmdPrefix represents command prefixes (redirections and assignments before command).
 type CmdPrefix struct {
-	Redirects   []IORedirect
-	Assignments []string
+	Left           *CmdPrefix
+	AssignmentWord string
+	Redir          *IORedirect
+}
+
+func (c CmdPrefix) AssignmentWords() []string {
+	if c.Left == nil && c.AssignmentWord == "" {
+		return nil
+	}
+	if c.Left == nil {
+		return []string{c.AssignmentWord}
+	}
+	if c.AssignmentWord == "" {
+		return c.Left.AssignmentWords()
+	}
+	return append(c.Left.AssignmentWords(), c.AssignmentWord)
+}
+
+func (c CmdPrefix) IORedirects() []IORedirect {
+	if c.Left == nil && c.Redir == nil {
+		return nil
+	}
+	if c.Left == nil {
+		return []IORedirect{*c.Redir}
+	}
+	if c.Redir == nil {
+		return c.Left.IORedirects()
+	}
+	return append(c.Left.IORedirects(), *c.Redir)
 }
 
 func (c CmdPrefix) Dump() string {
-	var out []string
-	for _, redir := range c.Redirects {
-		out = append(out, redir.Dump())
+	if c.Left == nil {
+		if c.AssignmentWord != "" {
+			return c.AssignmentWord
+		}
+		return c.Redir.Dump()
 	}
-	out = append(out, c.Assignments...)
-	return strings.Join(out, " ")
+	str := c.AssignmentWord
+	if str == "" {
+		str = c.Redir.Dump()
+	}
+	return fmt.Sprintf("%s %s", c.Left.Dump(), str)
 }
 
-// CmdSuffix represents command suffixes (arguments and redirections after command).
 type CmdSuffix struct {
-	Words     []string
-	Redirects []IORedirect
+	Left  *CmdSuffix
+	Word  string
+	Redir *IORedirect
+}
+
+func (c CmdSuffix) Words() []string {
+	if c.Left == nil && c.Word == "" {
+		return nil
+	}
+	if c.Left == nil {
+		return []string{c.Word}
+	}
+	if c.Word == "" {
+		return c.Left.Words()
+	}
+	return append(c.Left.Words(), c.Word)
+}
+
+func (c CmdSuffix) IORedirects() []IORedirect {
+	if c.Left == nil && c.Redir == nil {
+		return nil
+	}
+	if c.Left == nil {
+		return []IORedirect{*c.Redir}
+	}
+	if c.Redir == nil {
+		return c.Left.IORedirects()
+	}
+	return append(c.Left.IORedirects(), *c.Redir)
 }
 
 func (c CmdSuffix) Dump() string {
-	out := c.Words
-	for _, redir := range c.Redirects {
-		out = append(out, redir.Dump())
-	}
-	return strings.Join(out, " ")
-}
-
-// CompoundCommand represents a complex command structure.
-type CompoundCommand struct {
-	Type         string // "brace", "subshell", "for", "case", "if", "while", "until".
-	Body         Node   // Specific structure based on type.
-	Redirections []IORedirect
-}
-
-func (c CompoundCommand) GetRedirects() []IORedirect {
-	return c.Redirections
-}
-
-func (c CompoundCommand) Dump() string {
-	switch c.Type {
-	case "subshell":
-		return "( " + c.Body.Dump() + " )"
-	default:
-		panic("Unsupported compound command type: " + c.Type)
-	}
-}
-
-func (c CompoundCommand) CommandDump() {}
-
-// SubShell represents a command group in parentheses.
-type SubShell struct {
-	List CompoundList
-}
-
-func (s SubShell) Dump() string {
-	return fmt.Sprintf("SubShell: %s", s.List.Dump())
-}
-
-// CompoundList is the equivalent of complete_command but for subshells.
-type CompoundList struct {
-	Term      Term
-	Separator lexer.TokenType // ";" or "&".
-}
-
-func (c CompoundList) Dump() string {
-	out := c.Term.Dump()
-	switch c.Separator {
-	case lexer.TokSemicolon:
-		out += ";"
-	case lexer.TokAmpersand:
-		out += "&"
-	}
-	return out
-}
-
-func (c *CompoundList) SetList(term Term) {
-	c.Term = term
-}
-
-func (c *CompoundList) SetSeparator(sep lexer.TokenType) {
-	c.Separator = sep
-}
-
-// Term is the equivalent of list but for subshells.
-type Term struct {
-	AndOrs     []AndOr
-	Separators []lexer.TokenType // ";" or "&" between and_ors.
-}
-
-func (t Term) Dump() string {
-	out := ""
-	for i, andOr := range t.AndOrs {
-		out += andOr.Dump()
-		if i < len(t.Separators) {
-			switch t.Separators[i] {
-			case lexer.TokSemicolon:
-				out += ";"
-			case lexer.TokAmpersand:
-				out += "&"
-			}
+	if c.Left == nil {
+		if c.Word != "" {
+			return c.Word
 		}
+		return c.Redir.Dump()
 	}
-	return out
+	str := c.Word
+	if str == "" {
+		str = c.Redir.Dump()
+	}
+	return fmt.Sprintf("%s %s", c.Left.Dump(), str)
 }
 
-func (t *Term) AppendAndOr(andOr AndOr) {
-	t.AndOrs = append(t.AndOrs, andOr)
-}
-
-func (t *Term) AppendSeparator(sep lexer.TokenType) {
-	t.Separators = append(t.Separators, sep)
-}
-
-// IORedirect represents an I/O redirection.
 type IORedirect struct {
-	Number   int             // Source file descriptor number.
-	Op       lexer.TokenType // "<", "<&", ">", ">&", ">>", "<>", ">|".
-	ToNumber *int            // For n>&m, nil if not specified.
-	Filename string          // For file redirections.
-	HereDoc  string          // For heredocs.
+	Number int
+	IOFile IOFile
 }
 
 func (i IORedirect) Dump() string {
-	out := fmt.Sprintf("%d%s", i.Number, i.Op)
+	return fmt.Sprintf("%d%s", i.Number, i.IOFile.Dump())
+}
+
+// IOFile represents io_file and io_here.
+type IOFile struct {
+	Operator lexer.TokenType // "<", ">", ">>", "|&", etc.
+	Filename string          // Filename or hereend.
+	ToNumber *int            // For n>&m, nil if not specified.
+}
+
+func (i IOFile) Dump() string {
 	if i.ToNumber != nil {
-		out += fmt.Sprintf("%d", *i.ToNumber)
+		return fmt.Sprintf("%s%d", i.Operator, *i.ToNumber)
 	}
-	if i.Filename != "" {
-		out += i.Filename
-	}
-	if i.HereDoc != "" {
-		out += i.HereDoc
-	}
-	return out
+	return fmt.Sprintf("%s%s", i.Operator, i.Filename)
 }

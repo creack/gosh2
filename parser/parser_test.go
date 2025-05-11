@@ -113,7 +113,7 @@ func TestParserComplex(t *testing.T) {
 							{Commands: []ast.Command{cmdEchoOk}, Negated: true},
 							{Commands: []ast.Command{cmdEchoKo}},
 						},
-						Operators: []lexer.TokenType{lexer.TokLogicalAnd, lexer.TokLogicalOr},
+						Operators: []lexer.TokenType{lexer.TokAndIf, lexer.TokOrIf},
 					}, {
 						Pipelines: []ast.Pipeline{
 							{Commands: []ast.Command{cmdPrintf}},

@@ -47,14 +47,14 @@ func lexText(l *Lexer) stateFn {
 		l.next()
 		if l.peek() == '|' {
 			l.next()
-			return l.emit(TokLogicalOr)
+			return l.emit(TokOrIf)
 		}
 		return l.emit(TokPipe)
 	case r == '&':
 		l.next()
 		if l.peek() == '&' {
 			l.next()
-			return l.emit(TokLogicalAnd)
+			return l.emit(TokAndIf)
 		}
 		return l.emit(TokAmpersand)
 	case r >= '0' && r <= '9':

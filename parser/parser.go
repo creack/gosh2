@@ -10,6 +10,10 @@ import (
 	"go.creack.net/gosh2/lexer"
 )
 
+// TokWorkd is an evaluted token type for words.
+// TODO: Implement this.
+const TokWord lexer.TokenType = lexer.FinalToken + iota + 1
+
 type parser struct {
 	lex *lexer.Lexer
 

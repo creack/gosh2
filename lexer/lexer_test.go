@@ -192,7 +192,7 @@ func TestLexerBracketsForConditions(t *testing.T) {
 		{Type: TokIdentifier, Value: "-eq"},
 		{Type: TokNumber, Value: "10"},
 		{Type: TokBracketRight, Value: "]"},
-		{Type: TokLogicalAnd, Value: "&&"},
+		{Type: TokAndIf, Value: "&&"},
 		{Type: TokIdentifier, Value: "echo"},
 		{Type: TokSingleQuoteString, Value: "Count is 10"},
 		{Type: TokEOF, Value: ""},

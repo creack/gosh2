@@ -34,8 +34,8 @@ const (
 	// Operators.
 	TokEquals
 	TokBang
-	TokLogicalAnd
-	TokLogicalOr
+	TokAndIf
+	TokOrIf
 
 	// Delimiters.
 	TokWhitespace
@@ -58,6 +58,11 @@ const (
 	// End of tokens.
 	FinalToken
 )
+
+var TokSeparatorOp = []TokenType{
+	TokSemicolon,
+	TokAmpersand,
+}
 
 var TokAnyRedirect = []TokenType{
 	TokRedirectLess,
@@ -97,18 +102,18 @@ var tokenTypeStrings = map[TokenType]string{
 	TokRedirectDoubleLessDash: "<<-", // DLESSDASH (<<-).
 	TokRedirectClobber:        ">|",  // CLOBBER (>|).
 
-	TokEquals:     "EQUALS",
-	TokBang:       "BANG",
-	TokLogicalAnd: "LOGICAL_AND",
-	TokLogicalOr:  "LOGICAL_OR",
+	TokEquals: "EQUALS",
+	TokBang:   "BANG",
+	TokAndIf:  "AND_IF",
+	TokOrIf:   "OR_IF",
 
 	TokWhitespace:      "WHITESPACE",
 	TokNewline:         "NEWLINE",
 	TokPipe:            "PIPE",
 	TokComma:           "COMMA",
-	TokSemicolon:       "SEMICOLON",
+	TokSemicolon:       ";",
 	TokDoubleSemicolon: "DOUBLE_SEMICOLON",
-	TokAmpersand:       "AMPERSAND",
+	TokAmpersand:       "&",
 	TokBacktick:        "BACKTICK",
 
 	TokCmdSubstitution: "CMD_SUBSTITUTION",

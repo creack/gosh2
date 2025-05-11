@@ -9,86 +9,67 @@ import (
 )
 
 func parseCompleteCommand(p *parser) ast.CompleteCommand {
-	return *genParseCompleteCommand(p, &ast.CompleteCommand{}, parseList, nil)
-}
-
-type SetLister[T any] interface {
-	SetList(list T)
-	SetSeparator(sep lexer.TokenType)
-}
-
-func genParseCompleteCommand[T SetLister[L], L any](p *parser, ccmd T, hdlr func(*parser, []lexer.TokenType) L, endTokens []lexer.TokenType) T {
 	p.ignoreWhitespaces()
-	endTokens = append(endTokens, lexer.TokEOF, lexer.TokNewline)
 
-	ccmd.SetList(hdlr(p, endTokens))
-	if p.curToken.Type.IsOneOf(lexer.TokAmpersand, lexer.TokSemicolon) {
-		ccmd.SetSeparator(p.curToken.Type)
-		p.nextToken()
+	ccmd := ast.CompleteCommand{}
+	ccmd.List = parseList(p, 0, nil)
+	if ccmd.List.Right == nil {
+		ccmd.Separator = ccmd.List.Separator
+		ccmd.List = ccmd.List.Left
 	}
 
-	p.expect(endTokens...)
+	p.expect(lexer.TokEOF, lexer.TokNewline)
 	return ccmd
 }
 
-func parseList(p *parser, endTokens []lexer.TokenType) ast.List {
-	return *genParseList(p, &ast.List{}, endTokens)
-}
-
-type SetAndOrer interface {
-	AppendAndOr(andOr ast.AndOr)
-	AppendSeparator(sep lexer.TokenType)
-}
-
-func genParseList[T SetAndOrer](p *parser, list T, endTokens []lexer.TokenType) T {
+func parseList(p *parser, sep lexer.TokenType, parent *ast.List) *ast.List {
 	p.ignoreWhitespaces()
 
-	for {
-		andOr := parseAndOr(p, endTokens)
-		list.AppendAndOr(andOr)
-
-		if p.curToken.Type.IsOneOf(lexer.TokSemicolon, lexer.TokAmpersand) {
-			p.nextToken()
-			// A list cannot end with a separator, if there is one, it must be followed by a and_or.
-			// If it is not, it is the end of the list.
-			if p.curToken.Type.IsOneOf(endTokens...) {
-				return list
-			}
-			list.AppendSeparator(p.prevToken.Type)
-			continue
-		}
-		break
+	list := &ast.List{
+		Left:      parent,
+		Separator: sep,
+		Right:     parseAndOr(p, 0, nil),
 	}
 
-	p.expect(endTokens...)
-	return list
-}
-
-func parseAndOr(p *parser, endTokens []lexer.TokenType) ast.AndOr {
-	p.ignoreWhitespaces()
-	endTokens = append(endTokens, lexer.TokAmpersand, lexer.TokSemicolon, lexer.TokWhitespace)
-
-	andOr := ast.AndOr{}
-	for {
-		pipeline := parsePipeline(p, endTokens)
-		andOr.Pipelines = append(andOr.Pipelines, pipeline)
-		if p.curToken.Type.IsOneOf(lexer.TokLogicalAnd, lexer.TokLogicalOr) {
-			andOr.Operators = append(andOr.Operators, p.curToken.Type)
-			p.nextToken()
-			continue
-		}
-		break
+	// If we don't have a separator_op, there is no left side and we are done.
+	if !p.curToken.Type.IsOneOf(lexer.TokSeparatorOp...) {
+		return list
 	}
 
-	p.expect(endTokens...)
-	return andOr
+	// Otherwise, we have a separator_op and we parsed the need to parse left side.
+	nextSep := p.curToken.Type
+	p.nextToken() // Consume the separator_op.
+	return parseList(p, nextSep, list)
 }
 
-func parsePipeline(p *parser, endTokens []lexer.TokenType) ast.Pipeline {
+func parseAndOr(p *parser, sep lexer.TokenType, parent *ast.AndOr) *ast.AndOr {
 	p.ignoreWhitespaces()
-	endTokens = append(endTokens, lexer.TokLogicalAnd, lexer.TokLogicalOr)
 
-	pipeline := ast.Pipeline{}
+	if p.curToken.Type == lexer.TokEOF {
+		return nil
+	}
+
+	andOr := &ast.AndOr{
+		Left:      parent,
+		Separator: sep,
+		Right:     parsePipeline(p),
+	}
+
+	// If we don't have a AND_IF or OR_IF, pipeline is the right side and we are done.
+	if !p.curToken.Type.IsOneOf(lexer.TokAndIf, lexer.TokOrIf) {
+		return andOr
+	}
+
+	// Otherwise, we have a AND_IF or OR_IF and we need to parse the left side.
+	nextSep := p.curToken.Type
+	p.nextToken() // Consume the AND_IF or OR_IF.
+	return parseAndOr(p, nextSep, andOr)
+}
+
+func parsePipeline(p *parser) *ast.Pipeline {
+	p.ignoreWhitespaces()
+
+	pipeline := &ast.Pipeline{}
 
 	// Check for negation at the start of the pipeline.
 	if p.curToken.Type == lexer.TokBang {
@@ -98,67 +79,44 @@ func parsePipeline(p *parser, endTokens []lexer.TokenType) ast.Pipeline {
 		p.ignoreWhitespaces()
 	}
 
-	// Parse the commands.
-	for {
-		prefixRedirections := parseCommandRedirect(p)
+	pipeline.Right = parsePipelineSequence(p)
 
-		switch p.curToken.Type {
-		case lexer.TokIdentifier, lexer.TokSingleQuoteString, lexer.TokDoubleQuoteString, lexer.TokNumber:
-			cmd := parseCommand(p, prefixRedirections, endTokens)
-			pipeline.Commands = append(pipeline.Commands, cmd)
-		case lexer.TokParenLeft:
-			if len(prefixRedirections) > 0 { // While zsh supports it, bash/posix doesn't.
-				panic(fmt.Errorf("unexpected prefix redirections %q before subshell", prefixRedirections))
-			}
-			p.nextToken() // Consume the left parenthesis.
-			cmd := parseSubshell(p)
-			pipeline.Commands = append(pipeline.Commands, cmd)
-		}
-		// If the next token is a pipe, continue parsing.
-		if p.curToken.Type == lexer.TokPipe {
-			p.nextToken()
-			p.ignoreWhitespaces()
-			continue
-		}
-
-		// Otherwise, break the loop.
-		break
-	}
-
-	p.expect(endTokens...)
 	return pipeline
 }
 
-func parseSubshell(p *parser) ast.CompoundCommand {
-	p.ignoreWhitespaces()
-	compCmd := ast.CompoundCommand{
-		Type: "subshell",
-	}
-
-	parseTerm := func(p *parser, endTokens []lexer.TokenType) ast.Term {
-		return *genParseList(p, &ast.Term{}, endTokens)
-	}
-	parseCompoundList := func(p *parser) ast.CompoundList {
-		return *genParseCompleteCommand(p, &ast.CompoundList{}, parseTerm, []lexer.TokenType{lexer.TokParenRight})
-	}
-	compCmd.Body = parseCompoundList(p)
-	p.expect(lexer.TokParenRight)
-	p.nextToken() // Consume the right parenthesis.
+func parsePipelineSequence(p *parser) *ast.PipelineSequence {
 	p.ignoreWhitespaces()
 
-	compCmd.Redirections = parseCommandRedirect(p)
+	pipelineSeq := &ast.PipelineSequence{}
 
-	return compCmd
+	// Parse the command.
+	pipelineSeq.Right = parseCommand(p)
+
+	// If we don't have a pipe, there is no left side and we are done.
+	if p.curToken.Type != lexer.TokPipe {
+		return pipelineSeq
+	}
+	p.nextToken() // Consume the pipe.
+
+	// Otherwise, we have a pipe and we need to parse the left side.
+	pipelineSeq.Left = parsePipelineSequence(p)
+
+	return pipelineSeq
 }
 
-func parseCommand(p *parser, prefixRedirections []ast.IORedirect, endToken []lexer.TokenType) ast.SimpleCommand {
+func parseCommand(p *parser) ast.Command {
 	p.ignoreWhitespaces()
-	endToken = append(endToken, lexer.TokPipe)
 
-	simpleCmd := ast.SimpleCommand{}
+	return parseSimpleCommand(p)
+}
+
+func parseSimpleCommand(p *parser) *ast.SimpleCommand {
+	p.ignoreWhitespaces()
+
+	simpleCmd := &ast.SimpleCommand{}
 
 	// Handle prefixes.
-	simpleCmd.Prefix = parseCommandPrefix(p, prefixRedirections)
+	simpleCmd.Prefix = parseCmdPrefix(p, nil)
 
 	// Handle the command name.
 	// TODO: Add support for `e"c"h'o' hello world`.
@@ -166,151 +124,138 @@ func parseCommand(p *parser, prefixRedirections []ast.IORedirect, endToken []lex
 	p.nextToken()
 	p.ignoreWhitespaces()
 
-	// As long as we have a word, we can add it to the suffix.
-	for p.curToken.Type.IsOneOf(lexer.TokIdentifier, lexer.TokSingleQuoteString, lexer.TokDoubleQuoteString, lexer.TokNumber) {
-		val := p.curToken.Value
-		p.nextToken()
-		for p.curToken.Type != lexer.TokError && // Stop if we hit an error.
-			!p.curToken.Type.IsOneOf(endToken...) && // Stop if we hit an end token.
-			!p.curToken.Type.IsOneOf(lexer.TokAnyRedirect...) { // Stop if we hit a redirect.
-			val += p.curToken.Value
-			p.nextToken()
-		}
-
-		p.ignoreWhitespaces()
-
-		simpleCmd.Suffix.Words = append(simpleCmd.Suffix.Words, val)
-	}
-
 	// Handle suffixes.
-	simpleCmd.Suffix.Redirects = parseCommandRedirect(p)
+	simpleCmd.Suffix = parseCmdSuffix(p, nil)
 
-	p.expect(endToken...)
 	return simpleCmd
 }
 
-func parseCommandPrefix(p *parser, redirects []ast.IORedirect) ast.CmdPrefix {
-	var assignments []string
-	for {
-		assign := parseVariableAssignments(p)
-		reds := parseCommandRedirect(p)
-		if len(assign) == 0 && len(reds) == 0 {
-			return ast.CmdPrefix{
-				Assignments: assignments,
-				Redirects:   redirects,
-			}
-		}
-		assignments = append(assignments, assign...)
-		redirects = append(redirects, reds...)
-	}
-}
+func parseCmdPrefix(p *parser, parent *ast.CmdPrefix) *ast.CmdPrefix {
+	p.ignoreWhitespaces()
 
-func parseVariableAssignments(p *parser) []string {
-	var out []string
-
-	for {
-		p.ignoreWhitespaces()
-
-		if !p.curToken.Type.IsOneOf(lexer.TokIdentifier, lexer.TokSingleQuoteString, lexer.TokDoubleQuoteString, lexer.TokNumber) {
-			return out
+	if p.peek().Type == lexer.TokEquals {
+		prefix := &ast.CmdPrefix{
+			Left:           parent,
+			AssignmentWord: p.expectIdentifierStr().Value,
 		}
-		if p.peek().Type != lexer.TokEquals {
-			return out
-		}
-		name := p.expectIdentifierStr().Value
-		p.nextToken() // Consume the var name.
+		p.nextToken() // Consume the variable name.
 		p.nextToken() // Consume the equals sign.
-		out = append(out, name+"="+p.expectIdentifierStr().Value)
-		p.nextToken() // Consume the var value.
+		prefix.AssignmentWord += "=" + p.expectIdentifierStr().Value
+		p.nextToken() // Consume the variable value.
+		return parseCmdPrefix(p, prefix)
 	}
+	if p.curToken.Type.IsOneOf(lexer.TokAnyRedirect...) {
+		prefix := &ast.CmdPrefix{
+			Left: parent,
+		}
+		prefix.Redir = parseIORedirect(p)
+		p.nextToken()
+		return parseCmdPrefix(p, prefix)
+	}
+
+	return parent
 }
 
-func parseCommandRedirect(p *parser) []ast.IORedirect {
-	var redirects []ast.IORedirect
-	for {
-		switch p.curToken.Type {
-		case lexer.TokRedirectGreatAnd, lexer.TokRedirectLessAnd:
-			// Parse the fd number.
-			fd, err := strconv.Atoi(p.curToken.Value)
-			if err != nil {
-				panic(fmt.Errorf("invalid fd number: %q", p.curToken.Value))
-			}
-			op := p.curToken.Type
-			p.nextToken()
-			p.ignoreWhitespaces()
-			red := ast.IORedirect{
-				Number: fd,
-				Op:     op,
-			}
+func parseCmdSuffix(p *parser, parent *ast.CmdSuffix) *ast.CmdSuffix {
+	if p.curToken.Type == lexer.TokNewline {
+		return parent
+	}
+	p.ignoreWhitespaces()
 
-			target := p.expectIdentifierStr().Value
-			if p.curToken.Type == lexer.TokNumber {
-				n, err := strconv.Atoi(target)
-				if err != nil {
-					panic(fmt.Errorf("invalid target fd number: %q", target))
-				}
-				red.ToNumber = &n
-			} else {
-				if op == lexer.TokRedirectLessAnd {
-					panic(fmt.Errorf("file number expected after %q", op))
-				}
-				red.Filename = target
-			}
-
-			p.nextToken()
-			p.ignoreWhitespaces()
-			redirects = append(redirects, red)
-
-		case lexer.TokRedirectLess, lexer.TokRedirectGreat, lexer.TokRedirectDoubleGreat, lexer.TokRedirectLessGreat:
-			// Parse the fd number.
-			fd, err := strconv.Atoi(p.curToken.Value)
-			if err != nil {
-				panic(fmt.Errorf("invalid fd number: %q", p.curToken.Value))
-			}
-			op := p.curToken.Type
-			p.nextToken()
-			p.ignoreWhitespaces()
-			red := ast.IORedirect{
-				Number:   fd,
-				Op:       op,
-				Filename: p.expectIdentifierStr().Value,
-			}
-			p.nextToken()
-			p.ignoreWhitespaces()
-			redirects = append(redirects, red)
-
-		case lexer.TokRedirectDoubleLess:
-			// Parse the fd number.
-			fd, err := strconv.Atoi(p.curToken.Value)
-			if err != nil {
-				panic(fmt.Errorf("invalid fd number: %q", p.curToken.Value))
-			}
-			p.nextToken() // Consume the fd number.
-			p.ignoreWhitespaces()
-			hereEnd := p.expectIdentifierStr().Value
-			p.nextToken()              // Consume the hereEnd token.
-			p.expect(lexer.TokNewline) // We exepect a newline token here.
-			p.nextToken()              // Consume the newline token.
-
-			// Consume all tokens until we reach the hereEnd token.
-			hereDoc := ""
-			for !p.curToken.Type.IsOneOf(lexer.TokEOF, lexer.TokError) && p.curToken.Value != hereEnd {
-				hereDoc += p.curToken.Value
-				p.nextToken()
-			}
-			// Consume the hereEnd token.
-			if p.curToken.Value == hereEnd {
-				p.nextToken()
-			}
-			red := ast.IORedirect{
-				Number:  fd,
-				Op:      lexer.TokRedirectDoubleLess,
-				HereDoc: hereDoc,
-			}
-			redirects = append(redirects, red)
-
-		default:
-			return redirects
+	if p.curToken.Type.IsOneOf(lexer.TokIdentifier, lexer.TokSingleQuoteString, lexer.TokDoubleQuoteString, lexer.TokNumber) {
+		suffix := &ast.CmdSuffix{
+			Left: parent,
+			Word: p.expectIdentifierStr().Value,
 		}
+		p.nextToken()
+		return parseCmdSuffix(p, suffix)
+	}
+	if p.curToken.Type.IsOneOf(lexer.TokAnyRedirect...) {
+		suffix := &ast.CmdSuffix{
+			Left: parent,
+		}
+		suffix.Redir = parseIORedirect(p)
+		return parseCmdSuffix(p, suffix)
+	}
+
+	return parent
+}
+
+func parseIORedirect(p *parser) *ast.IORedirect {
+	p.ignoreWhitespaces()
+
+	// Parse the fd number.
+	fd, err := strconv.Atoi(p.curToken.Value)
+	if err != nil {
+		panic(fmt.Errorf("invalid fd number: %q", p.curToken.Value))
+	}
+	op := p.curToken.Type
+	p.nextToken()
+	p.ignoreWhitespaces()
+
+	switch op {
+	case lexer.TokRedirectGreatAnd, lexer.TokRedirectLessAnd:
+		red := &ast.IORedirect{
+			Number: fd,
+			IOFile: ast.IOFile{
+				Operator: op,
+			},
+		}
+
+		target := p.expectIdentifierStr().Value
+		if p.curToken.Type == lexer.TokNumber {
+			n, err := strconv.Atoi(target)
+			if err != nil {
+				panic(fmt.Errorf("invalid target fd number: %q", target))
+			}
+			red.IOFile.ToNumber = &n
+		} else {
+			if op == lexer.TokRedirectLessAnd {
+				panic(fmt.Errorf("file number expected after %q", op))
+			}
+			red.IOFile.Filename = target
+		}
+		p.nextToken() // Consume the target token.
+		return red
+
+	case lexer.TokRedirectLess, lexer.TokRedirectGreat, lexer.TokRedirectDoubleGreat, lexer.TokRedirectLessGreat:
+		red := &ast.IORedirect{
+			Number: fd,
+			IOFile: ast.IOFile{
+				Operator: op,
+				Filename: p.expectIdentifierStr().Value,
+			},
+		}
+		p.nextToken() // Consume the target token.
+		return red
+
+	case lexer.TokRedirectDoubleLess, lexer.TokRedirectDoubleLessDash:
+		hereEnd := p.expectIdentifierStr().Value
+		p.nextToken()                            // Consume the hereEnd token.
+		p.expect(lexer.TokNewline, lexer.TokEOF) // We exepect a newline token here.
+		p.nextToken()                            // Consume the newline token.
+
+		// Consume all tokens until we reach the hereEnd token.
+		hereDoc := ""
+		for !p.curToken.Type.IsOneOf(lexer.TokEOF, lexer.TokError) && p.curToken.Value != hereEnd {
+			hereDoc += p.curToken.Value
+			p.nextToken()
+		}
+		// Consume the hereEnd token.
+		if p.curToken.Value == hereEnd {
+			p.nextToken()
+		}
+		red := &ast.IORedirect{
+			Number: fd,
+			IOFile: ast.IOFile{
+				Operator: lexer.TokRedirectDoubleLess,
+				Filename: hereDoc,
+			},
+		}
+		return red
+
+	default:
+		// Should never happen.
+		panic(fmt.Errorf("unsupported redirect %q", op))
 	}
 }
