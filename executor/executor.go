@@ -10,84 +10,7 @@ import (
 	"go.creack.net/gosh2/lexer"
 )
 
-// func executePipeline(pipeline ast.Pipeline, stdin io.Reader, stdout, stderr io.Writer) (int, error) {
-// 	var cmds []CmdIO
-// 	var simpleCmds []ast.Command
-// 	// Create exec.Cmd for each command in the pipeline.
-// 	for _, pipeCmd := range pipeline.Commands {
-// 		switch c := pipeCmd.(type) {
-// 		case ast.SimpleCommand:
-// 			simpleCmds = append(simpleCmds, c)
-// 			builtin := handleBuiltinCmd(c)
-// 			if builtin != nil {
-// 				cmds = append(cmds, builtin)
-// 				continue
-// 			}
-// 			cmd := exec.Command(c.Name, c.Suffix.Words...)
-// 			cmd.Env = append(os.Environ(), c.Prefix.Assignments...)
-// 			cmds = append(cmds, &CmdWrap{cmd})
-// 		case ast.CompoundCommand:
-// 			switch c.Type {
-// 			case "subshell":
-// 				simpleCmds = append(simpleCmds, c)
-// 				cmd := exec.Command(os.Args[0], "-sub")
-// 				cmd.Env = os.Environ()
-// 				cmd.Stdin = strings.NewReader(c.Body.Dump())
-// 				cmds = append(cmds, &CmdWrap{cmd})
-// 			default:
-// 				return -1, fmt.Errorf("unsupported compound command type %q", c.Type)
-// 			}
-// 		default:
-// 			return -1, fmt.Errorf("unsupported command type %T", c)
-// 		}
-// 	}
-
-// 	// Set stdin/stdout/stderr for the last command.
-// 	lastCmd := cmds[len(cmds)-1]
-// 	if lastCmd.GetStdin() == nil {
-// 		lastCmd.SetStdin(stdin)
-// 	}
-// 	lastCmd.SetStdout(stdout)
-// 	lastCmd.SetStderr(stderr)
-
-// 	// Handle io redirections for the last command.
-// 	if err := setupCommandIO(simpleCmds[len(simpleCmds)-1], lastCmd); err != nil {
-// 		return -1, fmt.Errorf("setup %q: %w", lastCmd.GetPath(), err)
-// 	}
-
-// 	// For every other command in the pipeline, hook stdin to the previous command's stdout.
-// 	for i := len(cmds) - 1; i > 0; i-- {
-// 		stdin, _ := cmds[i-1].StdoutPipe()
-// 		cmds[i].SetStdin(stdin)
-// 		cmds[i-1].SetStderr(stderr)
-// 		if err := setupCommandIO(simpleCmds[i-1], cmds[i-1]); err != nil {
-// 			return -1, fmt.Errorf("setup %q: %w", cmds[i-1].GetPath(), err)
-// 		}
-// 	}
-
-// 	// Start all commands in the pipeline.
-// 	for _, cmd := range cmds {
-// 		if err := cmd.Start(); err != nil {
-// 			return -1, fmt.Errorf("start %q: %w", cmd.GetPath(), err)
-// 		}
-// 	}
-// 	// Wait on all commands in the pipeline. Keep track of the last exit code.
-// 	lastExitCode := -1
-// 	const optPipefail = false // TODO: Actually implement pipefail.
-// 	for _, cmd := range cmds {
-// 		err := cmd.Wait()
-// 		if ps := cmd.GetProcessState(); ps != nil {
-// 			lastExitCode = ps.ExitCode()
-// 		}
-// 		if err != nil && optPipefail {
-// 			return lastExitCode, fmt.Errorf("wait %q: %w", cmd.GetPath(), err)
-// 		}
-// 	}
-
-// 	return lastExitCode, nil
-// }
-
-func evaluateSimpleCommand(scmd *ast.SimpleCommand, stdin io.Reader, stdout, stderr io.Writer) (CmdIO, error) {
+func evaluateSimpleCommand(scmd *ast.SimpleCommand, stdin io.Reader, stderr io.Writer) (CmdIO, error) {
 	var args []string
 	if scmd.Suffix != nil {
 		args = scmd.Suffix.Words()
@@ -104,47 +27,50 @@ func evaluateSimpleCommand(scmd *ast.SimpleCommand, stdin io.Reader, stdout, std
 	return &CmdWrap{cmd}, nil
 }
 
-func evaluateCommand(cmd ast.Command, stdin io.Reader, stdout, stderr io.Writer) (CmdIO, error) {
+func evaluateCommand(cmd ast.Command, stdin io.Reader, stderr io.Writer) (CmdIO, error) {
 	switch c := cmd.(type) {
 	case *ast.SimpleCommand:
-		return evaluateSimpleCommand(c, stdin, stdout, stderr)
+		return evaluateSimpleCommand(c, stdin, stderr)
 	default:
 		panic(fmt.Errorf("unsupported command type %T", c))
 	}
 }
 
-func evaluatePipelineSequence(seq *ast.PipelineSequence, cmds *[]CmdIO, stdin io.Reader, stdout, stderr io.Writer) CmdIO {
-	// If there is no left side, we only have a command.
-	exCmd, err := evaluateCommand(seq.Right, stdin, stdout, stderr)
-	if err != nil {
-		// TODO: Handle this error.
-		panic(err)
-	}
-	*cmds = append(*cmds, exCmd)
+func evaluatePipelineSequence(seq *ast.PipelineSequence, cmds *[]CmdIO, stdin io.Reader, stdout, stderr io.Writer) (CmdIO, error) {
 	if seq.Left != nil {
-		pipeout, err := exCmd.StdoutPipe()
+		nextExCmd, err := evaluatePipelineSequence(seq.Left, cmds, stdin, stdout, stderr)
 		if err != nil {
-			// TODO: Handle this error.
-			panic(err)
+			return nil, err
 		}
-		if err := setupCommandIO(seq.Right, exCmd); err != nil {
-			// TODO: Handle this error.
-			panic(err)
+
+		nextExCmd.SetStdout(nil)
+		outPipe, err := nextExCmd.StdoutPipe()
+		if err != nil {
+			return nil, fmt.Errorf("stdout pipe %q: %w", nextExCmd.GetPath(), err)
 		}
-		return evaluatePipelineSequence(seq.Left, cmds, pipeout, stdout, stderr)
+		stdin = outPipe
 	}
 
+	exCmd, err := evaluateCommand(seq.Right, stdin, stderr)
+	if err != nil {
+		return nil, fmt.Errorf("evaluate command %q: %w", seq.Right.Dump(), err)
+	}
+	*cmds = append(*cmds, exCmd)
 	exCmd.SetStdout(stdout)
 	if err := setupCommandIO(seq.Right, exCmd); err != nil {
-		// TODO: Handle this error.
-		panic(err)
+		return nil, fmt.Errorf("setup cmd io %q: %w", exCmd.GetPath(), err)
 	}
-	return exCmd
+
+	return exCmd, nil
 }
 
 func evaluatePipeline(pipeline *ast.Pipeline, stdin io.Reader, stdout, stderr io.Writer) (int, bool, error) {
-	cmds := []CmdIO{}
-	evaluatePipelineSequence(pipeline.Right, &cmds, stdin, stdout, stderr)
+	var cmds []CmdIO
+
+	if _, err := evaluatePipelineSequence(pipeline.Right, &cmds, stdin, stdout, stderr); err != nil {
+		return -1, pipeline.Negated, fmt.Errorf("evaluate pipeline sequence %q: %w", pipeline.Right.Dump(), err)
+	}
+
 	// Start all commands in the pipeline.
 	for _, cmd := range cmds {
 		if err := cmd.Start(); err != nil {

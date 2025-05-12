@@ -79,18 +79,18 @@ func parsePipeline(p *parser) *ast.Pipeline {
 		p.ignoreWhitespaces()
 	}
 
-	pipeline.Right = parsePipelineSequence(p)
+	pipeline.Right = parsePipelineSequence(p, nil)
 
 	return pipeline
 }
 
-func parsePipelineSequence(p *parser) *ast.PipelineSequence {
+func parsePipelineSequence(p *parser, parent *ast.PipelineSequence) *ast.PipelineSequence {
 	p.ignoreWhitespaces()
 
-	pipelineSeq := &ast.PipelineSequence{}
-
-	// Parse the command.
-	pipelineSeq.Right = parseCommand(p)
+	pipelineSeq := &ast.PipelineSequence{
+		Left:  parent,
+		Right: parseCommand(p),
+	}
 
 	// If we don't have a pipe, there is no left side and we are done.
 	if p.curToken.Type != lexer.TokPipe {
@@ -99,9 +99,8 @@ func parsePipelineSequence(p *parser) *ast.PipelineSequence {
 	p.nextToken() // Consume the pipe.
 
 	// Otherwise, we have a pipe and we need to parse the left side.
-	pipelineSeq.Left = parsePipelineSequence(p)
+	return parsePipelineSequence(p, pipelineSeq)
 
-	return pipelineSeq
 }
 
 func parseCommand(p *parser) ast.Command {

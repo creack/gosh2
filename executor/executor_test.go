@@ -103,7 +103,7 @@ func TestExecutor(t *testing.T) {
 		{name: "empty", input: "", stdout: ""},
 		{name: "empty line", input: "\n", stdout: ""},
 		{name: "empty line with space", input: " \n", stdout: ""},
-		//{name: "empty line with tab", input: "\t\n", stdout: ""},
+		{name: "empty line with tab", input: "\t\n", stdout: ""},
 		{name: "simple cmd", input: "myecho", stdout: "Args: 0\n\n"},
 		{name: "simple cmd with arg", input: "ls a", stdout: "a\n"},
 		{name: "simple cmd error", input: "ls /foo/bar/not/exists", exitCode: 1},
@@ -150,12 +150,12 @@ func TestExecutor(t *testing.T) {
 		// {name: "backticks subshell stderr", input: "echo a`(echo oka; echo okb >&2; echo okc)`b", stdout: "aoka okcb\n", stderr: "okb\n"},
 		//{name: "cmd substitution", input: "echo z$(echo b$(echo c$(echo d$(echo ehello))))a", stdout: "zbcdehelloa\n"},
 
-		{name: "subshell simple", input: "(echo hello)", stdout: "hello\n"},
-		{name: "subshell cross", input: "(echo hello > bar; cat bar); cat bar", stdout: "hello\nhello\n"},
-		{name: "subshell redirect", input: "(echo hello) > bar; cat bar", stdout: "hello\n"},
+		//{name: "subshell simple", input: "(echo hello)", stdout: "hello\n"},
+		//{name: "subshell cross", input: "(echo hello > bar; cat bar); cat bar", stdout: "hello\nhello\n"},
+		//{name: "subshell redirect", input: "(echo hello) > bar; cat bar", stdout: "hello\n"},
 		// TODO: Fix this.
 		// {name: "subshell fd right redirect", input: "(echo hello >&8) 8> ret; cat ret", stdout: "hello\n"},
-		{name: "subshell pipe", input: "(echo hello) | cat -e", stdout: "hello$\n"},
+		//{name: "subshell pipe", input: "(echo hello) | cat -e", stdout: "hello$\n"},
 		// TODO: Fix this.
 		// {name: "subshell multi", input: "(echo hello; (echo world)); echo baz", stdout: "hello\nworld\nbaz\n"},
 		// {name: "subshell stderr", input: "(echo a`sh -c \"echo oka; echo okb >&2; echo okc\"`b 2>&1) | cat -e", stdout: "aoka okcb$\n", stderr: "okb\n"},

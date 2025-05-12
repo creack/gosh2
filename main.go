@@ -57,10 +57,11 @@ world'''a`
 	input = "a=b echo a b c > f 8>&1 >> foo < bar <<-HERE"
 	input = "a=b echo"
 	input = "ls a aa > foo; cat foo"
-	input = "echo hello | cat -e | cat -e"
 	input = "< foo wc | cat -e"
 	//input = "cat foo | wc | cat -e"
 	input = "cat -e <<EOF\nhello\nworld\nEOF\necho a"
+	input = "rm -f bar; < foo cat | sh -c 'cat 0<&6' 6<foo | wc | cat -e > bar; echo ---; cat bar"
+	input = "(echo)"
 
 	cmd := exec.Command("bash", "--posix")
 	cmd.Stdin = strings.NewReader(input)
