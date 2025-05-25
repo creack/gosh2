@@ -3,7 +3,6 @@ package executor_test
 import (
 	"bytes"
 	"errors"
-	"flag"
 	"fmt"
 	"log"
 	"os"
@@ -51,8 +50,6 @@ func setupEnv(t *testing.T) {
 	require.NoError(t, os.Setenv("PATH", tmpDir+"/bin:"+os.Getenv("PATH")), "failed to set env PATH")
 }
 
-var flSub = flag.Bool("sub", false, "Run as subshell")
-
 func TestMain(m *testing.M) {
 	switch os.Args[0] {
 	// myecho dumps the number of argument and the arguments without any processing,
@@ -75,13 +72,8 @@ func TestMain(m *testing.M) {
 		fmt.Printf("%s\n", v)
 		return
 	}
-	flag.Parse()
-	if flSub != nil && *flSub {
-		exitCode, err := parser.Run(os.Stdin, nil, os.Stdout, os.Stderr)
-		if exitCode == 0 && err != nil {
-			log.Fatalf("Sub fail: %s.", err)
-		}
-		os.Exit(exitCode)
+
+	if parser.RunSubshell(os.Args, os.Exit, os.Stdin, os.Stdout, os.Stderr) {
 		return
 	}
 
@@ -112,6 +104,7 @@ func TestExecutor(t *testing.T) {
 		{name: "builtin double right redirect", input: "rm foo; echo hello >> foo; echo world >> foo; cat foo", stdout: "hello\nworld\n"},
 		{name: "left redirect", input: "cat < foo", stdout: "foocontent\n"},
 		{name: "fd right redirect", input: "echo hello 8>bar >&8; cat bar", stdout: "hello\n"},
+		{name: "fd right redirect pipe", input: "echo hello >&2 | cat -e", stderr: "hello\n"},
 		{name: "andors success", input: "ls a && echo why && echo ok1 || echo ko2 && echo ok2; cat foo; echo -1-", stdout: "a\nwhy\nok1\nok2\nfoocontent\n-1-\n"},
 		{name: "andors failure", input: "ls /foo/bar/not/exists && echo why && echo ok1 || echo ko2 && echo ok2; cat foo; echo -1-", stdout: "ko2\nok2\nfoocontent\n-1-\n", exitCode: 0},
 		// TODO: Add full set of tests for and/or, semicolumn, pipes asserting final exitcode.
@@ -144,21 +137,20 @@ func TestExecutor(t *testing.T) {
 		{name: "mixed prefix", input: "fooa=bar >bar foo=foo mygetenv foo; cat -e bar", stdout: "foo$\n"},
 
 		{name: "backticks nested", input: "echo `echo \\`echo hello\\``", stdout: "hello\n"},
-		//{name: "backticks neighbors", input: "echo a`ls a`b", stdout: "aab\n"},
+		{name: "backticks neighbors", input: "echo a`ls a`b", stdout: "aab\n"},
 		{name: "backticks error", input: "echo a`exit 1`;echo bb", stdout: "a\nbb\n"},
 		// TODO: Fix this.
-		// {name: "backticks subshell stderr", input: "echo a`(echo oka; echo okb >&2; echo okc)`b", stdout: "aoka okcb\n", stderr: "okb\n"},
+		{name: "backticks subshell stderr", input: "echo a`(echo oka; echo okb >&2; echo okc)`b", stdout: "aoka okcb\n", stderr: "okb\n"},
 		//{name: "cmd substitution", input: "echo z$(echo b$(echo c$(echo d$(echo ehello))))a", stdout: "zbcdehelloa\n"},
 
-		//{name: "subshell simple", input: "(echo hello)", stdout: "hello\n"},
-		//{name: "subshell cross", input: "(echo hello > bar; cat bar); cat bar", stdout: "hello\nhello\n"},
-		//{name: "subshell redirect", input: "(echo hello) > bar; cat bar", stdout: "hello\n"},
+		{name: "subshell simple", input: "(echo hello)", stdout: "hello\n"},
+		{name: "subshell cross", input: "(echo hello > bar; cat bar); cat -e bar", stdout: "hello\nhello$\n"},
+		{name: "subshell redirect", input: "(echo hello) > bar; cat -e bar", stdout: "hello$\n"},
+		{name: "subshell fd right redirect", input: "(echo hello >&8) 8> ret; cat -e ret", stdout: "hello$\n"},
+		{name: "subshell pipe", input: "(echo hello) | cat -e", stdout: "hello$\n"},
 		// TODO: Fix this.
-		// {name: "subshell fd right redirect", input: "(echo hello >&8) 8> ret; cat ret", stdout: "hello\n"},
-		//{name: "subshell pipe", input: "(echo hello) | cat -e", stdout: "hello$\n"},
-		// TODO: Fix this.
-		// {name: "subshell multi", input: "(echo hello; (echo world)); echo baz", stdout: "hello\nworld\nbaz\n"},
-		// {name: "subshell stderr", input: "(echo a`sh -c \"echo oka; echo okb >&2; echo okc\"`b 2>&1) | cat -e", stdout: "aoka okcb$\n", stderr: "okb\n"},
+		{name: "subshell multi", input: "(echo hello; (echo world)); echo baz", stdout: "hello\nworld\nbaz\n"},
+		//{name: "subshell stderr", input: "(echo a`sh -c \"echo oka; echo okb >&2; echo okc\"`b 2>&1) | cat -e", stdout: "aoka okcb$\n", stderr: "okb\n"},
 	}
 
 	for _, tt := range tests {

@@ -64,6 +64,8 @@ var TokSeparatorOp = []TokenType{
 	TokAmpersand,
 }
 
+var TokSeparator = append(TokSeparatorOp, TokNewline)
+
 var TokAnyRedirect = []TokenType{
 	TokRedirectLess,
 	TokRedirectGreat,

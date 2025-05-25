@@ -8,11 +8,15 @@ import (
 	"go.creack.net/gosh2/lexer"
 )
 
-func parseCompleteCommand(p *parser) ast.CompleteCommand {
-	p.ignoreWhitespaces()
+func parseCompleteCommand(p *parser) *ast.CompleteCommand {
+	p.ignoreNLWhitespaces()
+	if p.curToken.Type == lexer.TokEOF {
+		return nil
+	}
 
-	ccmd := ast.CompleteCommand{}
-	ccmd.List = parseList(p, 0, nil)
+	ccmd := &ast.CompleteCommand{
+		List: parseList(p, 0, nil),
+	}
 	if ccmd.List.Right == nil {
 		ccmd.Separator = ccmd.List.Separator
 		ccmd.List = ccmd.List.Left
@@ -85,12 +89,11 @@ func parsePipeline(p *parser) *ast.Pipeline {
 }
 
 func parsePipelineSequence(p *parser, parent *ast.PipelineSequence) *ast.PipelineSequence {
-	p.ignoreWhitespaces()
-
 	pipelineSeq := &ast.PipelineSequence{
 		Left:  parent,
 		Right: parseCommand(p),
 	}
+	p.ignoreWhitespaces()
 
 	// If we don't have a pipe, there is no left side and we are done.
 	if p.curToken.Type != lexer.TokPipe {
@@ -106,7 +109,79 @@ func parsePipelineSequence(p *parser, parent *ast.PipelineSequence) *ast.Pipelin
 func parseCommand(p *parser) ast.Command {
 	p.ignoreWhitespaces()
 
-	return parseSimpleCommand(p)
+	switch p.curToken.Type {
+	case lexer.TokParenLeft:
+		return parseCompoundCommand(p)
+	default:
+		return parseSimpleCommand(p)
+	}
+}
+
+func parseCompoundCommand(p *parser) *ast.CompoundCommandWrap {
+	compoundCmd := &ast.CompoundCommandWrap{}
+
+	switch p.curToken.Type {
+	case lexer.TokParenLeft:
+		compoundCmd.CompoundCommand = parseSubshell(p)
+	default:
+		// Cannot happen.
+		panic(fmt.Errorf("unexpected token %q", p.curToken))
+	}
+
+	p.ignoreWhitespaces()
+	for p.curToken.Type.IsOneOf(lexer.TokAnyRedirect...) {
+		red := parseIORedirect(p)
+		compoundCmd.Redir = append(compoundCmd.Redir, *red)
+		//p.ignoreWhitespaces()
+	}
+
+	return compoundCmd
+}
+
+func parseSubshell(p *parser) *ast.SubshellCommand {
+	p.nextToken() // Consume the left parenthesis.
+	p.ignoreWhitespaces()
+
+	subshell := &ast.SubshellCommand{
+		Right: parseCompoundList(p),
+	}
+
+	p.expect(lexer.TokParenRight)
+	p.nextToken() // Consume the right parenthesis.
+
+	return subshell
+}
+
+func parseCompoundList(p *parser) *ast.CompoundList {
+	p.ignoreWhitespaces()
+
+	cList := &ast.CompoundList{
+		Term: parseTerm(p, 0, nil),
+	}
+	if cList.Term.Right == nil {
+		cList.Separator = cList.Term.Separator
+		cList.Term = cList.Term.Left
+	}
+
+	return cList
+}
+
+func parseTerm(p *parser, sep lexer.TokenType, parent *ast.Term) *ast.Term {
+	p.ignoreWhitespaces()
+
+	term := &ast.Term{
+		Left:      parent,
+		Separator: sep,
+		Right:     parseAndOr(p, 0, nil),
+	}
+
+	if !p.curToken.Type.IsOneOf(lexer.TokSeparator...) {
+		return term
+	}
+
+	nextSep := p.curToken.Type
+	p.nextToken() // Consume the separator.
+	return parseTerm(p, nextSep, term)
 }
 
 func parseSimpleCommand(p *parser) *ast.SimpleCommand {
@@ -148,7 +223,6 @@ func parseCmdPrefix(p *parser, parent *ast.CmdPrefix) *ast.CmdPrefix {
 			Left: parent,
 		}
 		prefix.Redir = parseIORedirect(p)
-		p.nextToken()
 		return parseCmdPrefix(p, prefix)
 	}
 

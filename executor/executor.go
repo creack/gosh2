@@ -27,10 +27,25 @@ func evaluateSimpleCommand(scmd *ast.SimpleCommand, stdin io.Reader, stderr io.W
 	return &CmdWrap{cmd}, nil
 }
 
+func evaluateCompoundCommand(compCmd *ast.CompoundCommandWrap, stdin io.Reader, stderr io.Writer) (CmdIO, error) {
+	switch compCmd := compCmd.CompoundCommand.(type) {
+	case *ast.SubshellCommand:
+		exCmd := exec.Command(os.Args[0], "-sub", "-c", compCmd.Right.Dump())
+		exCmd.Stdin = stdin
+		exCmd.Stderr = stderr
+		exCmd.Env = os.Environ()
+		return &CmdWrap{exCmd}, nil
+	default:
+		panic(fmt.Errorf("unsupported compound command type %T", compCmd))
+	}
+}
+
 func evaluateCommand(cmd ast.Command, stdin io.Reader, stderr io.Writer) (CmdIO, error) {
 	switch c := cmd.(type) {
 	case *ast.SimpleCommand:
 		return evaluateSimpleCommand(c, stdin, stderr)
+	case *ast.CompoundCommandWrap:
+		return evaluateCompoundCommand(c, stdin, stderr)
 	default:
 		panic(fmt.Errorf("unsupported command type %T", c))
 	}
@@ -43,20 +58,24 @@ func evaluatePipelineSequence(seq *ast.PipelineSequence, cmds *[]CmdIO, stdin io
 			return nil, err
 		}
 
-		nextExCmd.SetStdout(nil)
-		outPipe, err := nextExCmd.StdoutPipe()
-		if err != nil {
-			return nil, fmt.Errorf("stdout pipe %q: %w", nextExCmd.GetPath(), err)
+		fmt.Printf("OUTPIPE %q\n", nextExCmd.(*CmdWrap).Cmd)
+		if nextExCmd.GetStdout() == nil {
+			outPipe, err := nextExCmd.StdoutPipe()
+			if err != nil {
+				return nil, fmt.Errorf("stdout pipe %q: %w", nextExCmd.GetPath(), err)
+			}
+			stdin = outPipe
 		}
-		stdin = outPipe
+		stderr = nextExCmd.GetStderr()
 	}
 
 	exCmd, err := evaluateCommand(seq.Right, stdin, stderr)
 	if err != nil {
 		return nil, fmt.Errorf("evaluate command %q: %w", seq.Right.Dump(), err)
 	}
-	*cmds = append(*cmds, exCmd)
-	exCmd.SetStdout(stdout)
+	if exCmd != nil {
+		*cmds = append(*cmds, exCmd)
+	}
 	if err := setupCommandIO(seq.Right, exCmd); err != nil {
 		return nil, fmt.Errorf("setup cmd io %q: %w", exCmd.GetPath(), err)
 	}
@@ -67,8 +86,12 @@ func evaluatePipelineSequence(seq *ast.PipelineSequence, cmds *[]CmdIO, stdin io
 func evaluatePipeline(pipeline *ast.Pipeline, stdin io.Reader, stdout, stderr io.Writer) (int, bool, error) {
 	var cmds []CmdIO
 
-	if _, err := evaluatePipelineSequence(pipeline.Right, &cmds, stdin, stdout, stderr); err != nil {
+	lastCmd, err := evaluatePipelineSequence(pipeline.Right, &cmds, stdin, stdout, stderr)
+	if err != nil {
 		return -1, pipeline.Negated, fmt.Errorf("evaluate pipeline sequence %q: %w", pipeline.Right.Dump(), err)
+	}
+	if lastCmd.GetStdout() == nil {
+		lastCmd.SetStdout(stdout)
 	}
 
 	// Start all commands in the pipeline.

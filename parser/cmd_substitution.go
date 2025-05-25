@@ -12,10 +12,10 @@ import (
 )
 
 func runCommandSubstitution(input string) lexer.Token {
-	cmd := exec.Command(os.Args[0], "-sub")
+	cmd := exec.Command(os.Args[0], "-sub", "-c", input)
 
 	buf := bytes.NewBuffer(nil)
-	cmd.Stdin = strings.NewReader(input)
+	cmd.Stdin = nil
 	cmd.Stdout = buf
 	cmd.Stderr = os.Stderr
 
@@ -36,10 +36,10 @@ func (p *parser) evalBacktick() lexer.Token {
 	var values []string
 
 	p.expect(lexer.TokBacktick)
-	p.nextToken()
+	p.curToken = p.lex.NextToken()
 	for !p.curToken.Type.IsOneOf(lexer.TokEOF, lexer.TokError, lexer.TokBacktick) {
 		values = append(values, p.curToken.Value)
-		p.nextToken()
+		p.curToken = p.lex.NextToken()
 	}
 	p.expect(lexer.TokBacktick)
 
@@ -50,7 +50,7 @@ func (p *parser) evalBacktick() lexer.Token {
 func (p *parser) evalCommandSubstitution() lexer.Token {
 	var values []string
 
-	p.nextToken()
+	p.curToken = p.lex.NextToken()
 	depth := 1
 	for {
 		if p.curToken.Type.IsOneOf(lexer.TokParenLeft, lexer.TokCmdSubstitution) {
@@ -63,7 +63,7 @@ func (p *parser) evalCommandSubstitution() lexer.Token {
 			break
 		}
 		values = append(values, p.curToken.Value)
-		p.nextToken()
+		p.curToken = p.lex.NextToken()
 	}
 	str := strings.Join(values, "")
 	return runCommandSubstitution(str)

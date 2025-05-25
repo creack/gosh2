@@ -30,7 +30,6 @@ func setupCommandIO(aCmd ast.Command, cmd CmdIO) error {
 			}
 			go func() {
 				defer func() { _ = w.Close() }() // Best effort.
-				fmt.Printf("------------???? %q\n", elem.IOFile.Filename)
 				fmt.Fprint(w, elem.IOFile.Filename)
 			}()
 			file = r
@@ -56,11 +55,15 @@ func setupCommandIO(aCmd ast.Command, cmd CmdIO) error {
 				file, _ = cmd.GetStdin().(*os.File)
 			case 1:
 				file, _ = cmd.GetStdout().(*os.File)
+				if cmd.GetStdout() == nil {
+					file = os.NewFile(uintptr(1), "stdout")
+				}
 			case 2:
 				file, _ = cmd.GetStderr().(*os.File)
 			default:
 				file = cmd.GetExtraFD(*elem.IOFile.ToNumber)
 			}
+			fmt.Printf("------- %d -> %d\n", elem.Number, *elem.IOFile.ToNumber)
 			if file == nil {
 				return fmt.Errorf("bad file descriptor %d\n", *elem.IOFile.ToNumber)
 			}
@@ -73,11 +76,13 @@ func setupCommandIO(aCmd ast.Command, cmd CmdIO) error {
 			cmd.SetStdin(file)
 		case 1:
 			cmd.SetStdout(file)
+			fmt.Printf("1------- %d -> %d\n", elem.Number, 1)
 			// Case for `>& filename`, redirect both stdout and stderr to the file.
 			if elem.IOFile.Operator == lexer.TokRedirectGreatAnd && elem.IOFile.Filename != "" {
 				cmd.SetStderr(file)
 			}
 		case 2:
+			fmt.Printf("2------- %d -> %d\n", elem.Number, 2)
 			cmd.SetStderr(file)
 		default:
 			cmd.SetExtraFD(elem.Number, file)

@@ -100,6 +100,65 @@ type Command interface {
 	IORedirects() []IORedirect
 }
 
+type CompoundCommand interface {
+	Dump() string
+	compoundCommand()
+}
+
+type CompoundCommandWrap struct {
+	CompoundCommand
+	Redir []IORedirect
+}
+
+func (CompoundCommandWrap) command()                     {}
+func (cc CompoundCommandWrap) IORedirects() []IORedirect { return cc.Redir }
+func (cc CompoundCommandWrap) Dump() string {
+	out := cc.CompoundCommand.Dump()
+	for _, r := range cc.Redir {
+		out += " " + r.Dump()
+	}
+	return out
+}
+
+type SubshellCommand struct {
+	Right *CompoundList
+}
+
+func (SubshellCommand) compoundCommand() {}
+
+func (s SubshellCommand) Dump() string {
+	if s.Right == nil {
+		return "()"
+	}
+	return fmt.Sprintf("(%s)", s.Right.Dump())
+}
+
+type CompoundList struct {
+	Term      *Term
+	Separator lexer.TokenType // separator.
+}
+
+func (c CompoundList) Dump() string {
+	out := c.Term.Dump()
+	if c.Separator != 0 {
+		out += c.Separator.String()
+	}
+	return out
+}
+
+type Term struct {
+	Left      *Term
+	Separator lexer.TokenType // separator.
+	Right     *AndOr
+}
+
+func (t Term) Dump() string {
+	if t.Left == nil {
+		return t.Right.Dump()
+	}
+	return fmt.Sprintf("%s %s %s", t.Left.Dump(), t.Separator, t.Right.Dump())
+}
+
 // SimpleCommand represents a basic command with name, arguments and redirections.
 type SimpleCommand struct {
 	Prefix *CmdPrefix

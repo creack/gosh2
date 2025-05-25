@@ -59,9 +59,14 @@ world'''a`
 	input = "ls a aa > foo; cat foo"
 	input = "< foo wc | cat -e"
 	//input = "cat foo | wc | cat -e"
-	input = "cat -e <<EOF\nhello\nworld\nEOF\necho a"
 	input = "rm -f bar; < foo cat | sh -c 'cat 0<&6' 6<foo | wc | cat -e > bar; echo ---; cat bar"
-	input = "(echo)"
+	input = "(echo hello) | cat -e"
+	input = "cat -e <<EOF\nhello\nworld\nEOF\necho a"
+	input = "(echo hello >&8) 8> ret; cat -e ret"
+	input = "myecho a\"b\"'c'a"
+	input = "echo a`ls b`c"
+	input = "(echo a>&2; echo b) | cat -e"
+	input = "foo.sh 2>&1 | cat -e"
 
 	cmd := exec.Command("bash", "--posix")
 	cmd.Stdin = strings.NewReader(input)
@@ -76,7 +81,7 @@ world'''a`
 		fmt.Printf("------GOSH-------\n")
 		defer fmt.Printf("------!gosh-----\n")
 	}
-	if true {
+	if false {
 		p := parser.New(strings.NewReader(input))
 		for {
 			cmd := p.NextCompleteCommand()
@@ -105,12 +110,7 @@ world'''a`
 }
 
 func main() {
-	if len(os.Args) > 1 && os.Args[1] == "-sub" {
-		exitCode, err := parser.Run(os.Stdin, nil, os.Stdout, os.Stderr)
-		if exitCode == 0 && err != nil {
-			log.Fatalf("Sub fail: %s.", err)
-		}
-		os.Exit(exitCode)
+	if parser.RunSubshell(os.Args, os.Exit, os.Stdin, os.Stdout, os.Stderr) {
 		return
 	}
 	for i := 3; i <= 7; i++ {

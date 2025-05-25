@@ -21,8 +21,6 @@ type parser struct {
 	curToken  lexer.Token
 
 	peekToken *lexer.Token // Buffer.
-
-	inBacktick bool
 }
 
 type Parser interface {
@@ -54,6 +52,21 @@ func Parse(lex *lexer.Lexer) ast.Program {
 	return ast.Program{Commands: cmds}
 }
 
+func RunSubshell(argv []string, exitFn func(int), stdin io.Reader, stdout, stderr io.Writer) bool {
+	// args[0] -sub -c 'cmd'
+	if len(argv) != 4 || argv[1] != "-sub" || argv[2] != "-c" {
+		return false
+	}
+	exitCode, err := Run(strings.NewReader(argv[3]), stdin, stdout, stderr)
+	if err != nil {
+		fmt.Fprintf(stderr, "Sub fail: %s.", err)
+		exitFn(1)
+		return true
+	}
+	exitFn(exitCode)
+	return true
+}
+
 func Run(input, stdin io.Reader, stdout, stderr io.Writer) (int, error) {
 	p := New(input)
 
@@ -79,18 +92,19 @@ func (p *parser) NextCompleteCommand() *ast.CompleteCommand {
 	if p.curToken.Type == lexer.TokEOF || p.curToken.Type == lexer.TokError {
 		return nil
 	}
-	completeCmd := parseCompleteCommand(p)
-	return &completeCmd
+	return parseCompleteCommand(p)
 }
 
 func (p *parser) nextToken() lexer.Token {
 	p.prevToken = p.curToken
 	if p.peekToken != nil {
-		p.curToken = p.evalToken(*p.peekToken)
+		p.curToken = *p.peekToken
 		p.peekToken = nil
+		p.curToken = p.aggregateTokens()
 		return p.curToken
 	}
-	p.curToken = p.evalToken(p.lex.NextToken())
+	p.curToken = p.lex.NextToken()
+	p.curToken = p.aggregateTokens()
 	return p.curToken
 }
 
@@ -103,24 +117,43 @@ func (p *parser) peek() lexer.Token {
 	return tok
 }
 
-func (p *parser) evalToken(tok lexer.Token) lexer.Token {
+func (p *parser) aggregateTokens() lexer.Token {
+	tok := p.evalToken()
+
+	words := []lexer.TokenType{
+		lexer.TokIdentifier,
+		lexer.TokNumber,
+		lexer.TokSingleQuoteString,
+		lexer.TokDoubleQuoteString,
+		lexer.TokCmdSubstitution,
+		lexer.TokBacktick,
+	}
+
+	if !tok.Type.IsOneOf(words...) {
+		return tok
+	}
+	for p.peek().Type.IsOneOf(words...) {
+		ntok := p.nextToken()
+		tok.Value += ntok.Value
+	}
+	//	tok.Type = TokWord
+	return tok
+}
+
+func (p *parser) evalToken() lexer.Token {
+	tok := p.curToken
+
 	switch tok.Type {
 	case lexer.TokIdentifier:
 		tok.Value = evalGlobing(tok.Value)
 	case lexer.TokBacktick:
-		if p.inBacktick {
-			p.inBacktick = false
-			return tok
-		}
-		p.inBacktick = true
-		p.curToken = tok
-		return p.evalBacktick()
+		tok = p.evalBacktick()
 	case lexer.TokCmdSubstitution:
-		p.curToken = tok
-		return p.evalCommandSubstitution()
+		tok = p.evalCommandSubstitution()
 	case lexer.TokDoubleQuoteString:
 		tok.Value = strings.ReplaceAll(tok.Value, "\\\"", "\"")
 	}
+
 	return tok
 }
 
@@ -139,7 +172,13 @@ func (p *parser) expectIdentifierStr() lexer.Token {
 }
 
 func (p *parser) ignoreWhitespaces() {
-	for p.curToken.Type.IsOneOf(lexer.TokNewline, lexer.TokWhitespace) {
+	for p.curToken.Type == lexer.TokWhitespace {
+		p.nextToken()
+	}
+}
+
+func (p *parser) ignoreNLWhitespaces() {
+	for p.curToken.Type == lexer.TokWhitespace || p.curToken.Type == lexer.TokNewline {
 		p.nextToken()
 	}
 }
