@@ -17,9 +17,11 @@ func (c *CmdWrap) GetStdout() io.Writer { return c.Stdout }
 func (c *CmdWrap) GetStderr() io.Writer { return c.Stderr }
 func (c *CmdWrap) SetStdin(r io.Reader) { c.Stdin = r }
 func (c *CmdWrap) SetStdout(w io.Writer) {
-	if w != nil {
-		fmt.Printf("SET STDOUT %q TO %d\n", c.Cmd, w.(*os.File).Fd())
-	}
+	// if w != nil {
+	// 	if _, ok := w.(*os.File); ok {
+	// 		//	fmt.Printf("SET STDOUT %q TO %d\n", c.Cmd, w.(*os.File).Fd())
+	// 	}
+	// }
 	c.Stdout = w
 }
 func (c *CmdWrap) SetStderr(w io.Writer) { c.Stderr = w }

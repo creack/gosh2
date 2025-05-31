@@ -140,6 +140,71 @@ type Token struct {
 	line int
 }
 
+func (t Token) PrettyPrint() string {
+	switch t.Type {
+	case TokEOF:
+		return ""
+	case TokError:
+		return t.errorString()
+
+	case TokIdentifier, TokNumber:
+		return t.Value
+	case TokSingleQuoteString:
+		return fmt.Sprintf("'%s'", t.Value)
+	case TokDoubleQuoteString:
+		return fmt.Sprintf("\"%s\"", t.Value)
+	case TokVar:
+		return fmt.Sprintf("$%s", t.Value)
+
+	case TokBang:
+		return "!"
+	case TokEquals:
+		return "="
+	case TokAndIf:
+		return "&&"
+	case TokOrIf:
+		return "||"
+
+	case TokWhitespace:
+		return " "
+	case TokNewline:
+		return "\n"
+	case TokPipe:
+		return "|"
+	case TokComma:
+		return ","
+	case TokSemicolon:
+		return ";"
+	case TokDoubleSemicolon:
+		return ";;"
+	case TokAmpersand:
+		return "&"
+	case TokBacktick:
+		return "`"
+
+	case TokCmdSubstitution:
+		return "$("
+	case TokParenLeft:
+		return "("
+	case TokParenRight:
+		return ")"
+	case TokBraceLeft:
+		return "{"
+	case TokBraceRight:
+		return "}"
+	case TokBracketLeft:
+		return "["
+	case TokBracketRight:
+		return "]"
+
+	default:
+		if t.Type >= TokRedirectLess && t.Type <= TokRedirectClobber {
+			return fmt.Sprintf("%s%s", t.Value, t.Type)
+		}
+		return fmt.Sprintf("%s: %q", t.Type, t.Value)
+	}
+}
+
 func (t Token) String() string {
 	switch {
 	case t.Type == TokEOF:

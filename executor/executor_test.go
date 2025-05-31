@@ -8,6 +8,7 @@ import (
 	"os"
 	"os/exec"
 	"runtime"
+	"strconv"
 	"strings"
 	"testing"
 
@@ -40,6 +41,7 @@ func setupEnv(t *testing.T) {
 	for _, name := range []string{
 		"myecho",
 		"mygetenv",
+		"exit", // TODO: Remvoe in favor of proper builtin.
 		// TODO: Implement rm, ls, cat, cat -e, grep.
 	} {
 		require.NoError(t, os.WriteFile("bin/"+name, src, 0755), "failed to write file %q", name)
@@ -71,6 +73,9 @@ func TestMain(m *testing.M) {
 		}
 		fmt.Printf("%s\n", v)
 		return
+	case "exit": // TODO: Remove in favor of proper builtin.
+		n, _ := strconv.Atoi(os.Args[1])
+		os.Exit(n)
 	}
 
 	if parser.RunSubshell(os.Args, os.Exit, os.Stdin, os.Stdout, os.Stderr) {
@@ -87,6 +92,7 @@ type testCase struct {
 	stderr   string
 	wantErr  bool
 	exitCode int
+	skip     []string // Skip shells that don't support this test or have non-posix behavior.
 }
 
 func TestExecutor(t *testing.T) {
@@ -104,7 +110,7 @@ func TestExecutor(t *testing.T) {
 		{name: "builtin double right redirect", input: "rm foo; echo hello >> foo; echo world >> foo; cat foo", stdout: "hello\nworld\n"},
 		{name: "left redirect", input: "cat < foo", stdout: "foocontent\n"},
 		{name: "fd right redirect", input: "echo hello 8>bar >&8; cat bar", stdout: "hello\n"},
-		{name: "fd right redirect pipe", input: "echo hello >&2 | cat -e", stderr: "hello\n"},
+		{name: "fd right redirect pipe", input: "echo hello >&2 | cat -e", stderr: "hello\n", skip: []string{"zsh"}},
 		{name: "andors success", input: "ls a && echo why && echo ok1 || echo ko2 && echo ok2; cat foo; echo -1-", stdout: "a\nwhy\nok1\nok2\nfoocontent\n-1-\n"},
 		{name: "andors failure", input: "ls /foo/bar/not/exists && echo why && echo ok1 || echo ko2 && echo ok2; cat foo; echo -1-", stdout: "ko2\nok2\nfoocontent\n-1-\n", exitCode: 0},
 		// TODO: Add full set of tests for and/or, semicolumn, pipes asserting final exitcode.
@@ -231,7 +237,13 @@ func run(tt testCase) func(t *testing.T) {
 			shellList = []string{"bash --posix", "gosh2"}
 			//shellList = []string{"gosh2"}
 		}
+	loop:
 		for _, elem := range shellList {
+			for _, skip := range tt.skip {
+				if strings.HasPrefix(elem, skip) {
+					continue loop
+				}
+			}
 			t.Run(elem, func(t *testing.T) {
 				stdout := bytes.NewBuffer(nil)
 				stderr := bytes.NewBuffer(nil)

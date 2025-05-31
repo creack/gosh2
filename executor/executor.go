@@ -5,6 +5,7 @@ import (
 	"io"
 	"os"
 	"os/exec"
+	"slices"
 
 	"go.creack.net/gosh2/ast"
 	"go.creack.net/gosh2/lexer"
@@ -51,22 +52,22 @@ func evaluateCommand(cmd ast.Command, stdin io.Reader, stderr io.Writer) (CmdIO,
 	}
 }
 
-func evaluatePipelineSequence(seq *ast.PipelineSequence, cmds *[]CmdIO, stdin io.Reader, stdout, stderr io.Writer) (CmdIO, error) {
+func evaluatePipelineSequence(seq *ast.PipelineSequence, cmds *[]CmdIO, cmds2 *[]ast.Command, stdin io.Reader, stdout, stderr io.Writer) (CmdIO, error) {
 	if seq.Left != nil {
-		nextExCmd, err := evaluatePipelineSequence(seq.Left, cmds, stdin, stdout, stderr)
+		nextExCmd, err := evaluatePipelineSequence(seq.Left, cmds, cmds2, stdin, stdout, stderr)
 		if err != nil {
 			return nil, err
 		}
-
-		fmt.Printf("OUTPIPE %q\n", nextExCmd.(*CmdWrap).Cmd)
-		if nextExCmd.GetStdout() == nil {
-			outPipe, err := nextExCmd.StdoutPipe()
-			if err != nil {
-				return nil, fmt.Errorf("stdout pipe %q: %w", nextExCmd.GetPath(), err)
-			}
-			stdin = outPipe
-		}
-		stderr = nextExCmd.GetStderr()
+		_ = nextExCmd
+		// fmt.Printf("OUTPIPE %q\n", nextExCmd.(*CmdWrap).Cmd)
+		// if nextExCmd.GetStdout() == nil {
+		// 	outPipe, err := nextExCmd.StdoutPipe()
+		// 	if err != nil {
+		// 		return nil, fmt.Errorf("stdout pipe %q: %w", nextExCmd.GetPath(), err)
+		// 	}
+		// 	stdin = outPipe
+		// }
+		// stderr = nextExCmd.GetStderr()
 	}
 
 	exCmd, err := evaluateCommand(seq.Right, stdin, stderr)
@@ -75,27 +76,64 @@ func evaluatePipelineSequence(seq *ast.PipelineSequence, cmds *[]CmdIO, stdin io
 	}
 	if exCmd != nil {
 		*cmds = append(*cmds, exCmd)
+		*cmds2 = append(*cmds2, seq.Right)
 	}
-	if err := setupCommandIO(seq.Right, exCmd); err != nil {
-		return nil, fmt.Errorf("setup cmd io %q: %w", exCmd.GetPath(), err)
-	}
+	// if err := setupCommandIO(seq.Right, exCmd); err != nil {
+	// 	return nil, fmt.Errorf("setup cmd io %q: %w", exCmd.GetPath(), err)
+	// }
 
 	return exCmd, nil
 }
 
 func evaluatePipeline(pipeline *ast.Pipeline, stdin io.Reader, stdout, stderr io.Writer) (int, bool, error) {
 	var cmds []CmdIO
-
-	lastCmd, err := evaluatePipelineSequence(pipeline.Right, &cmds, stdin, stdout, stderr)
+	var cmds2 []ast.Command
+	lastCmd, err := evaluatePipelineSequence(pipeline.Right, &cmds, &cmds2, stdin, stdout, stderr)
 	if err != nil {
 		return -1, pipeline.Negated, fmt.Errorf("evaluate pipeline sequence %q: %w", pipeline.Right.Dump(), err)
 	}
-	if lastCmd.GetStdout() == nil {
-		lastCmd.SetStdout(stdout)
+	_ = lastCmd
+
+	lastCmd = cmds[len(cmds)-1]
+
+	// cmds[0].SetStdin(stdin)
+
+	// //cmds[0].SetStdout(stdout)
+	// cmds[0].SetStdout(stderr)
+	// cmds[0].SetStderr(stderr)
+
+	// // cmds[0].SetStdout(stderr)
+
+	// cmds[1].SetStdin(nil)
+	// cmds[1].SetStdout(stdout)
+	// cmds[1].SetStderr(stderr)
+	// //cmds = cmds[:1]
+
+	if lastCmd.GetStdin() == nil {
+		lastCmd.SetStdin(stdin)
+	}
+	lastCmd.SetStdout(stdout)
+	lastCmd.SetStderr(stderr)
+
+	// Handle io redirections for the last command.
+	if err := setupCommandIO(cmds2[len(cmds2)-1], lastCmd); err != nil {
+		return -1, pipeline.Negated, fmt.Errorf("setup1 %q: %w", lastCmd.GetPath(), err)
 	}
 
+	// For every other command in the pipeline, hook stdin to the previous command's stdout.
+	for i := len(cmds) - 1; i > 0; i-- {
+		stdin, _ := cmds[i-1].StdoutPipe()
+		cmds[i].SetStdin(stdin)
+		cmds[i-1].SetStderr(stderr)
+		if err := setupCommandIO(cmds2[i-1], cmds[i-1]); err != nil {
+			return -1, pipeline.Negated, fmt.Errorf("setup2 %q: %w", cmds[i-1].GetPath(), err)
+		}
+	}
+
+	slices.Reverse(cmds)
 	// Start all commands in the pipeline.
 	for _, cmd := range cmds {
+		//fmt.Printf("[%d] %q\n", i, cmd.GetPath())
 		if err := cmd.Start(); err != nil {
 			return -1, false, fmt.Errorf("start %q: %w", cmd.GetPath(), err)
 		}

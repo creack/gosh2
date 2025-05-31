@@ -38,7 +38,7 @@ func (p *parser) evalBacktick() lexer.Token {
 	p.expect(lexer.TokBacktick)
 	p.curToken = p.lex.NextToken()
 	for !p.curToken.Type.IsOneOf(lexer.TokEOF, lexer.TokError, lexer.TokBacktick) {
-		values = append(values, p.curToken.Value)
+		values = append(values, p.curToken.PrettyPrint())
 		p.curToken = p.lex.NextToken()
 	}
 	p.expect(lexer.TokBacktick)

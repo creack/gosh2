@@ -1,6 +1,7 @@
 package main
 
 import (
+	"bytes"
 	"fmt"
 	"log"
 	"os"
@@ -67,16 +68,26 @@ world'''a`
 	input = "echo a`ls b`c"
 	input = "(echo a>&2; echo b) | cat -e"
 	input = "foo.sh 2>&1 | cat -e"
+	input = "echo hello0 >&2"
+	input = "echo hello2 | wc -l | cat -e"
+	input = "echo hello1 >&2 | cat -e"
+	input = "foo.sh 1>&2 | cat -e"
+	input = "echo oka; echo okb >&2; echo okc"
+	input = "(echo `echo 'oka'; echo \"okb\" >&2; echo okc`) > /dev/null 2> foo; cat -e foo"
 
-	cmd := exec.Command("bash", "--posix")
-	cmd.Stdin = strings.NewReader(input)
-	cmd.Stdout = os.Stdout
-	cmd.Stderr = os.Stderr
-	if false {
+	if true {
+		cmd := exec.Command("bash", "--posix")
+		cmd.Stdin = strings.NewReader(input)
+		outBuf := bytes.NewBuffer(nil)
+		errBuf := bytes.NewBuffer(nil)
+		cmd.Stdout = outBuf
+		cmd.Stderr = errBuf
 		fmt.Printf("------POSIX-----\n")
 		if err := cmd.Run(); err != nil {
 			log.Printf("sh error: %s.", err)
 		}
+		fmt.Printf("[POSIXOUT] %q\n", outBuf.String())
+		fmt.Printf("[POSIXERR] %q\n", errBuf.String())
 		fmt.Printf("------!POSIX-----\n")
 		fmt.Printf("------GOSH-------\n")
 		defer fmt.Printf("------!gosh-----\n")
@@ -106,7 +117,12 @@ world'''a`
 		fmt.Println(list.Right.Right.Right.Right.(*ast.SimpleCommand).Suffix.Words)
 	}
 
-	return parser.Run(strings.NewReader(input), os.Stdin, os.Stdout, os.Stderr)
+	outBuf := bytes.NewBuffer(nil)
+	errBuf := bytes.NewBuffer(nil)
+	exitCode, err := parser.Run(strings.NewReader(input), os.Stdin, outBuf, errBuf)
+	fmt.Printf("[OUT] %q\n", outBuf.String())
+	fmt.Printf("[ERR] %q\n", errBuf.String())
+	return exitCode, err
 }
 
 func main() {
