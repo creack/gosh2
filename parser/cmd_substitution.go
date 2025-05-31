@@ -3,6 +3,7 @@ package parser
 import (
 	"bytes"
 	"errors"
+	"io"
 	"log"
 	"os"
 	"os/exec"
@@ -11,13 +12,13 @@ import (
 	"go.creack.net/gosh2/lexer"
 )
 
-func runCommandSubstitution(input string) lexer.Token {
+func runCommandSubstitution(input string, stderr io.Writer) lexer.Token {
 	cmd := exec.Command(os.Args[0], "-sub", "-c", input)
 
 	buf := bytes.NewBuffer(nil)
 	cmd.Stdin = nil
 	cmd.Stdout = buf
-	cmd.Stderr = os.Stderr
+	cmd.Stderr = stderr
 
 	if err := cmd.Run(); err != nil {
 		var e0 *exec.ExitError
@@ -44,7 +45,7 @@ func (p *parser) evalBacktick() lexer.Token {
 	p.expect(lexer.TokBacktick)
 
 	str := strings.Join(values, "")
-	return runCommandSubstitution(str)
+	return runCommandSubstitution(str, p.stderr)
 }
 
 func (p *parser) evalCommandSubstitution() lexer.Token {
@@ -66,5 +67,5 @@ func (p *parser) evalCommandSubstitution() lexer.Token {
 		p.curToken = p.lex.NextToken()
 	}
 	str := strings.Join(values, "")
-	return runCommandSubstitution(str)
+	return runCommandSubstitution(str, p.stderr)
 }

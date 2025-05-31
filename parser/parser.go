@@ -3,6 +3,7 @@ package parser
 import (
 	"fmt"
 	"io"
+	"os"
 	"strings"
 
 	"go.creack.net/gosh2/ast"
@@ -21,26 +22,33 @@ type parser struct {
 	curToken  lexer.Token
 
 	peekToken *lexer.Token // Buffer.
+
+	// TODO: Reconsider this. Not a fan of having execution related fields in the parser itself.
+	stderr io.Writer // Stderr for command substitution.
 }
 
 type Parser interface {
 	NextCompleteCommand() *ast.CompleteCommand
 }
 
-func newParser(lex *lexer.Lexer) *parser {
+func newParser(lex *lexer.Lexer, stderr io.Writer) *parser {
+	if stderr == nil {
+		stderr = os.Stderr
+	}
 	return &parser{
-		lex: lex,
+		lex:    lex,
+		stderr: stderr,
 	}
 }
 
-func New(r io.Reader) Parser {
-	return newParser(lexer.New(r))
+func New(r io.Reader, stderr io.Writer) Parser {
+	return newParser(lexer.New(r), stderr)
 }
 
-func Parse(lex *lexer.Lexer) ast.Program {
+func Parse(lex *lexer.Lexer, stderr io.Writer) ast.Program {
 	var cmds []ast.CompleteCommand
 
-	p := newParser(lex)
+	p := newParser(lex, stderr)
 	for {
 		cmd := p.NextCompleteCommand()
 		if cmd == nil {
@@ -68,7 +76,7 @@ func RunSubshell(argv []string, exitFn func(int), stdin io.Reader, stdout, stder
 }
 
 func Run(input, stdin io.Reader, stdout, stderr io.Writer) (int, error) {
-	p := New(input)
+	p := New(input, stderr)
 
 	var lastExitCode int
 	for {
