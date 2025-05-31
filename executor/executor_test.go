@@ -122,7 +122,7 @@ func TestExecutor(t *testing.T) {
 		{name: "simple semicolon", input: "echo hello; cat foo", stdout: "hello\nfoocontent\n"},
 		// TODO: Handle this case.
 		// Add simple errors like bin not found in PATH.
-		// {name: "internal error", input: "cat /dev/fd/9 9<&7 7<foo", stderr: "bad file descriptor 7\n", exitCode: -1},
+		{name: "internal error", input: "cat " + selfFD() + "/9 9<&7 7<foo", stderr: "cat: " + selfFD() + "/9: Permission denied\n", exitCode: 1},
 		// {name: "subshell internal error redirect", input: "(cat /dev/fd/9 9<&7 7<foo) >& bar; cat bar", stdout: "bad file descriptor 7\n"},
 
 		{name: "heredoc left space", input: "echo ___; cat -e <<EOF\nhello\nworld\nEOF\necho ^^^^", stdout: "___\nhello$\nworld$\n^^^^\n"},
@@ -131,8 +131,8 @@ func TestExecutor(t *testing.T) {
 
 		{name: "backslash escape chars", input: `myecho a\ b\" "\a\b\\\a\"" '\a\b\\\a\"' \a\b\\\a\"`, stdout: "Args: 4\n" + `a b" \a\b\\a" \a\b\\\a\" ab\a"` + "\n"},
 		{name: "backslash doublequote", input: `echo hello\"world`, stdout: "hello\"world\n"},
-		//{name: "backslash singlequote newline", input: "echo 'hello\\\nworld'''a", stdout: "hello\\\nworlda\n"},
-		//{name: "backslash newline", input: "echo hello\\\nworld''\"a\\\nb\"", stdout: "helloworldab\n"},
+		{name: "backslash singlequote newline", input: "echo 'hello\\\nworld'''a", stdout: "hello\\\nworlda\n"},
+		{name: "backslash newline", input: "echo hello\\\nworld''\"a\\\nb\"", stdout: "helloworldab\n"},
 
 		{name: "globing question", input: "echo a?", stdout: "aa ab\n"},
 		{name: "globing bracket", input: "echo a[ab]", stdout: "aa ab\n"},
@@ -145,18 +145,17 @@ func TestExecutor(t *testing.T) {
 		{name: "backticks nested", input: "echo `echo \\`echo hello\\``", stdout: "hello\n"},
 		{name: "backticks neighbors", input: "echo a`ls a`b", stdout: "aab\n"},
 		{name: "backticks error", input: "echo a`exit 1`;echo bb", stdout: "a\nbb\n"},
-		// TODO: Fix this.
 		{name: "backticks subshell stderr", input: "echo a`(echo oka; echo okb >&2; echo okc)`b", stdout: "aoka okcb\n", stderr: "okb\n"},
-		//{name: "cmd substitution", input: "echo z$(echo b$(echo c$(echo d$(echo ehello))))a", stdout: "zbcdehelloa\n"},
+		{name: "cmd substitution", input: "echo z$(echo b$(echo c$(echo d$(echo ehello$(echo foo >&2)))))a", stdout: "zbcdehelloa\n", stderr: "foo\n"},
 
 		{name: "subshell simple", input: "(echo hello)", stdout: "hello\n"},
 		{name: "subshell cross", input: "(echo hello > bar; cat bar); cat -e bar", stdout: "hello\nhello$\n"},
 		{name: "subshell redirect", input: "(echo hello) > bar; cat -e bar", stdout: "hello$\n"},
 		{name: "subshell fd right redirect", input: "(echo hello >&8) 8> ret; cat -e ret", stdout: "hello$\n"},
 		{name: "subshell pipe", input: "(echo hello) | cat -e", stdout: "hello$\n"},
-		// TODO: Fix this.
 		{name: "subshell multi", input: "(echo hello; (echo world)); echo baz", stdout: "hello\nworld\nbaz\n"},
-		//{name: "subshell stderr", input: "(echo a`sh -c \"echo oka; echo okb >&2; echo okc\"`b 2>&1) | cat -e", stdout: "aoka okcb$\n", stderr: "okb\n"},
+		{name: "subshell backtick stderr", input: "(echo a`echo oka; echo okb >&2; echo okc`b 2>&1) | cat -e", stdout: "aoka okcb$\n", stderr: "okb\n"},
+		{name: "subshell stderr pipe", input: "(echo okb >&2) 2>&1 | cat -e", stdout: "okb$\n"},
 	}
 
 	for _, tt := range tests {

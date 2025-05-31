@@ -63,7 +63,7 @@ func (p *parser) evalCommandSubstitution() lexer.Token {
 		if depth == 0 || p.curToken.Type.IsOneOf(lexer.TokEOF, lexer.TokError) {
 			break
 		}
-		values = append(values, p.curToken.Value)
+		values = append(values, p.curToken.PrettyPrint())
 		p.curToken = p.lex.NextToken()
 	}
 	str := strings.Join(values, "")
