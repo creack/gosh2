@@ -1,6 +1,7 @@
 package executor
 
 import (
+	"errors"
 	"fmt"
 	"io"
 	"os"
@@ -68,6 +69,9 @@ func setupCommandIO(aCmd ast.Command, cmd CmdIO) error {
 				out = cmd.GetStderr()
 			default:
 				out = cmd.GetExtraFD(*elem.IOFile.ToNumber)
+				if _, err := out.(*os.File).Stat(); err != nil {
+					return fmt.Errorf("%d: %w", *elem.IOFile.ToNumber, errors.Unwrap(err))
+				}
 			}
 			if in == nil && out == nil {
 				return fmt.Errorf("bad file descriptor2 %d\n", *elem.IOFile.ToNumber)

@@ -82,6 +82,11 @@ func TestMain(m *testing.M) {
 		return
 	}
 
+	// Close extra file descriptors opened by wrappers like `air` or `reflex`.
+	// Needed for consistent error handling.
+	for i := 4; i <= 40; i++ {
+		_ = os.NewFile(uintptr(i), "").Close() // Close fds 4-40. Best effort basis.
+	}
 	os.Exit(m.Run())
 }
 
@@ -104,7 +109,7 @@ func TestExecutor(t *testing.T) {
 		{name: "empty line with tab", input: "\t\n", stdout: ""},
 		{name: "simple cmd", input: "myecho", stdout: "Args: 0\n\n"},
 		{name: "simple cmd with arg", input: "ls a", stdout: "a\n"},
-		{name: "simple cmd error", input: "ls /foo/bar/not/exists", exitCode: 1},
+		{name: "simple cmd error", input: "ls /foo/bar/not/exists", exitCode: 1, wantErr: true},
 		{name: "simple builtin cmd", input: "echo hello", stdout: "hello\n"},
 		{name: "cmd right redir", input: "ls a aa > foo; cat foo", stdout: "a\naa\n"},
 		{name: "builtin double right redirect", input: "rm foo; echo hello >> foo; echo world >> foo; cat foo", stdout: "hello\nworld\n"},
@@ -122,8 +127,8 @@ func TestExecutor(t *testing.T) {
 		{name: "simple semicolon", input: "echo hello; cat foo", stdout: "hello\nfoocontent\n"},
 		// TODO: Handle this case.
 		// Add simple errors like bin not found in PATH.
-		{name: "internal error", input: "cat " + selfFD() + "/9 9<&7 7<foo", stderr: "cat: " + selfFD() + "/9: Permission denied\n", exitCode: 1},
-		// {name: "subshell internal error redirect", input: "(cat /dev/fd/9 9<&7 7<foo) >& bar; cat bar", stdout: "bad file descriptor 7\n"},
+		{name: "internal error", input: "cat " + selfFD() + "/9 9<&7 7<foo", stderr: `^[a-z0-9]+:(( line )?1:)? 7: [Bb]ad file descriptor` + "\n$", exitCode: 1, wantErr: true},
+		{name: "subshell internal error redirect", input: "(cat " + selfFD() + "/9 9<&7 7<foo) >& bar; cat -e bar", stdout: `^[a-z0-9]+:(( line )?1:)? 7: [Bb]ad file descriptor\$` + "\n$"},
 
 		{name: "heredoc left space", input: "echo ___; cat -e <<EOF\nhello\nworld\nEOF\necho ^^^^", stdout: "___\nhello$\nworld$\n^^^^\n"},
 		{name: "heredoc space", input: "echo ___; cat -e << EOF\nhello\nworld\nEOF\necho ^^^^", stdout: "___\nhello$\nworld$\n^^^^\n"},
@@ -282,6 +287,9 @@ func run(tt testCase) func(t *testing.T) {
 						exitCode = cmd.ProcessState.ExitCode()
 					}
 				}
+				if exitCode != 0 && err == nil {
+					err = fmt.Errorf("exit code: %d", exitCode)
+				}
 				if tt.wantErr {
 					require.Error(t, err, "parser.Run didn't fail but should have")
 				} else {
@@ -290,9 +298,17 @@ func run(tt testCase) func(t *testing.T) {
 				if !assert.Equal(t, tt.exitCode, exitCode, "Exit code mismatch") {
 					t.Logf("Stderr: %s", stderr)
 				}
-				require.Equal(t, tt.stdout, stdout.String(), "Stdout mismatch")
+				cmpFct := require.Equal
+				if strings.HasPrefix(tt.stdout, "^") && strings.HasSuffix(tt.stdout, "$") {
+					cmpFct = require.Regexp
+				}
+				cmpFct(t, tt.stdout, stdout.String(), "Stdout mismatch")
 				if tt.stderr != "" {
-					require.Equal(t, tt.stderr, stderr.String(), "Stderr mismatch")
+					cmpFct := require.Equal
+					if strings.HasPrefix(tt.stderr, "^") && strings.HasSuffix(tt.stderr, "$") {
+						cmpFct = require.Regexp
+					}
+					cmpFct(t, tt.stderr, stderr.String(), "Stderr mismatch")
 				}
 			})
 		}

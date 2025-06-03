@@ -67,7 +67,6 @@ func RunSubshell(argv []string, exitFn func(int), stdin io.Reader, stdout, stder
 	}
 	exitCode, err := Run(strings.NewReader(argv[3]), stdin, stdout, stderr)
 	if err != nil {
-		fmt.Fprintf(stderr, "Sub fail: %s.", err)
 		exitFn(1)
 		return true
 	}

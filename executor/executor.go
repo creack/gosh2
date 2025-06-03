@@ -117,7 +117,7 @@ func evaluatePipeline(pipeline *ast.Pipeline, stdin io.Reader, stdout, stderr io
 
 	// Handle io redirections for the last command.
 	if err := setupCommandIO(cmds2[len(cmds2)-1], lastCmd); err != nil {
-		return -1, pipeline.Negated, fmt.Errorf("setup1 %q: %w", lastCmd.GetPath(), err)
+		return 1, pipeline.Negated, err
 	}
 
 	// For every other command in the pipeline, hook stdin to the previous command's stdout.
@@ -126,7 +126,7 @@ func evaluatePipeline(pipeline *ast.Pipeline, stdin io.Reader, stdout, stderr io
 		cmds[i].SetStdin(stdin)
 		cmds[i-1].SetStderr(stderr)
 		if err := setupCommandIO(cmds2[i-1], cmds[i-1]); err != nil {
-			return -1, pipeline.Negated, fmt.Errorf("setup2 %q: %w", cmds[i-1].GetPath(), err)
+			return 1, pipeline.Negated, err
 		}
 	}
 
@@ -135,11 +135,11 @@ func evaluatePipeline(pipeline *ast.Pipeline, stdin io.Reader, stdout, stderr io
 	for _, cmd := range cmds {
 		//fmt.Printf("[%d] %q\n", i, cmd.GetPath())
 		if err := cmd.Start(); err != nil {
-			return -1, false, fmt.Errorf("start %q: %w", cmd.GetPath(), err)
+			return 1, false, fmt.Errorf("start %q: %w", cmd.GetPath(), err)
 		}
 	}
 	// Wait on all commands in the pipeline. Keep track of the last exit code.
-	lastExitCode := -1
+	lastExitCode := 1
 	var lastErr error
 	const optPipefail = false // TODO: Actually implement pipefail.
 	for _, cmd := range cmds {
@@ -208,5 +208,9 @@ func Evaluate(completeCmd ast.CompleteCommand, stdin io.Reader, stdout, stderr i
 	if completeCmd.Separator == lexer.TokAmpersand {
 		panic("job control not implemented")
 	}
-	return evaluateList(completeCmd.List, stdin, stdout, stderr)
+	exitCode, err := evaluateList(completeCmd.List, stdin, stdout, stderr)
+	if err != nil {
+		fmt.Fprintf(stderr, "gosh2: %s\n", err)
+	}
+	return exitCode, err
 }
